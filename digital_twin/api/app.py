@@ -582,12 +582,23 @@ def _compare_scenario(scenario: str) -> dict:
         available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
         raise HTTPException(status_code=404, detail=f"Scenario '{scenario}' not found. Available: {available}")
 
+    # Build a fresh strategy instance per run so that internal state (forecast cache,
+    # ablation flags set by update_policy) never leaks from one scenario run to the next.
+    _STRATEGY_FACTORIES = {
+        "B1": FirstAvailableStrategy,
+        "B2": NearestAvailableStrategy,
+        "B3": PredictionOnlyStrategy,
+        "P":  ParkingNavXFullStrategy,
+    }
+
     results = {}
     for code in ["B1", "B2", "B3", "P"]:
         sc = ScenarioLoader.load(scenario_file)
         run_id = f"api-cmp-{uuid.uuid4().hex[:6]}"
+        strategy = _STRATEGY_FACTORIES[code]()
+        strategy.label = code
         try:
-            result = _run_sim(sc, STRATEGIES[code], run_id)
+            result = _run_sim(sc, strategy, run_id)
         except Exception as e:  # surface the real cause to the UI instead of a bare 500
             raise HTTPException(
                 status_code=500,

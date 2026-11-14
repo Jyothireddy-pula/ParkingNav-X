@@ -306,6 +306,17 @@ class SimulationEngine:
         )
         conn.commit()
 
+        # Reset predictor live state so each run starts from a clean EMA baseline.
+        # Without this, the EMA accumulated from one run's occupancy observations
+        # biases forecasts for all subsequent runs (causes E6 ablation A/B/C to show
+        # identical results when run sequentially in the same process).
+        if scenario.use_prediction:
+            try:
+                from digital_twin.prediction.engine import get_predictor
+                get_predictor().reset_live_state()
+            except Exception:
+                pass
+
         graph = self.graph_service.build_graph(scenario.campus_id, conn)
         original_graph = graph  # kept for restoring timed road closures
         working_graph = self._apply_availability_overrides(graph, scenario)
@@ -413,13 +424,23 @@ class SimulationEngine:
                 if scenario.use_prediction:
                     try:
                         from digital_twin.prediction.engine import get_predictor
+                        from datetime import datetime as _dt, timedelta as _td
                         predictor = get_predictor()
                         # Update current fill rates from live campus state
                         for lot_id, lot_data in parking_lots.items():
                             cap = lot_data.get("usable_capacity", 1) or 1
                             occ = lot_data.get("occupied_spaces", 0)
                             predictor.update_current(lot_id, occ / cap)
-                        forecast = predictor.get_forecast_snapshot(horizon_minutes=15)
+                        # Pass the simulated wall-clock time so the ML model uses the
+                        # matching weekday/hour slot instead of always evaluating on the
+                        # last row of training data (which produced a uniform, static forecast).
+                        # Base date: 2024-01-08 (Monday) so start_time_min=480 → 08:00 Mon.
+                        _sim_wall_clock = _dt(2024, 1, 8, 0, 0) + _td(
+                            minutes=scenario.start_time_min + minute
+                        )
+                        forecast = predictor.get_forecast_snapshot(
+                            horizon_minutes=15, at=_sim_wall_clock
+                        )
                         # Inject noise if configured (E5 robustness scenarios)
                         if _noise_injector is not None:
                             lot_fills = forecast.get("lot_fill_rates", {})
