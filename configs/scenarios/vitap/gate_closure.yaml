@@ -21,3 +21,7 @@ availability_overrides:
 prediction_error_injection_level: 0.0
 dwell_minutes: { min: 120, max: 420 }
 random_seed: 400
+use_prediction: true
+use_optimization: true
+use_uncertainty: true
+proactive: true

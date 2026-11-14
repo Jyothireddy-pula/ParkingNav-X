@@ -154,20 +154,26 @@ class ParkingNavXFullStrategy(AllocationStrategy):
                 # Take the worse of predicted vs current fill so P is never
                 # less cautious than a reactive strategy (guards against the
                 # ML model returning uniform low predictions when lots vary).
-                effective_fill = max(
+                predicted_fill = max(
                     predicted_fills.get(lot_id, current_fill),
                     current_fill,
                 )
-                # Widen with upper conformal interval when uncertainty is enabled
+                # Widen with upper conformal interval for SCORING only.
+                # The hard-skip uses predicted_fill (not the widened value) so
+                # that wide conformal intervals don't cause every lot to be
+                # skipped and force a fallback to B2.
                 if self._use_uncertainty:
-                    effective_fill = max(effective_fill,
-                                         upper_fills.get(lot_id, effective_fill))
+                    effective_fill = max(predicted_fill,
+                                         upper_fills.get(lot_id, predicted_fill))
+                else:
+                    effective_fill = predicted_fill
             else:
+                predicted_fill = current_fill
                 effective_fill = current_fill
 
-            # Hard skip: only when forecast (or current) says lot is almost full.
-            # Vehicles that have no alternative will be caught by the fallback.
-            if effective_fill >= self.FILL_HARD_THRESHOLD:
+            # Hard skip: based on predicted fill (not uncertainty-widened score)
+            # so wide conformal bounds never exclude every lot from consideration.
+            if predicted_fill >= self.FILL_HARD_THRESHOLD:
                 continue
 
             # ── Distance from vehicle's actual entry gate ─────────────────────

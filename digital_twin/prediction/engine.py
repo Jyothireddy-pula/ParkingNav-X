@@ -366,13 +366,33 @@ class PredictionEngine:
         """A view of this engine with a fixed time and live fills, same interface as the engine."""
         return BoundPredictor(self, at, live_fills or {})
 
-    def predict_all(self, horizon_minutes: int = 15) -> Dict[str, Dict]:
-        """Predict all lots at once."""
-        return {lid: self.predict(lid, horizon_minutes) for lid in LOT_IDS}
+    def reset_live_state(self):
+        """Reset EMA and live fills to the fitted baseline.
 
-    def get_forecast_snapshot(self, horizon_minutes: int = 15) -> Dict:
-        """Return a forecast dict compatible with ParkingNavXFullStrategy.update_policy."""
-        preds = self.predict_all(horizon_minutes)
+        Call this between simulation runs so that one run's accumulated
+        occupancy observations don't bias the next run's forecasts.
+        """
+        for lid in LOT_IDS:
+            ha_fill = self._ha.predict_slot(
+                lid, getattr(self, '_init_hour', 9), getattr(self, '_init_dow', 0)
+            )
+            self._current_fills[lid] = ha_fill
+            self._ma._ema[lid] = ha_fill
+        # Clear the slot-table cache so _predict_for_time rebuilds with fresh state
+        self.__dict__.pop("_slot_cache", None)
+
+    def predict_all(self, horizon_minutes: int = 15, at=None) -> Dict[str, Dict]:
+        """Predict all lots at once. Pass `at` for time-aware (simulation) forecasts."""
+        return {lid: self.predict(lid, horizon_minutes, at=at) for lid in LOT_IDS}
+
+    def get_forecast_snapshot(self, horizon_minutes: int = 15, at=None) -> Dict:
+        """Return a forecast dict compatible with ParkingNavXFullStrategy.update_policy.
+
+        Pass `at` (a naive datetime in campus local time) so the XGBoost / HA model
+        evaluates the feature row matching the simulated wall-clock time instead of
+        always using the last row of the training data.
+        """
+        preds = self.predict_all(horizon_minutes, at=at)
         return {
             "lot_fill_rates": {lid: preds[lid]["fill_rate"] for lid in LOT_IDS},
             # Upper confidence bound — used by use_uncertainty=True path in P strategy
@@ -401,10 +421,11 @@ class BoundPredictor:
     def predict(self, lot_id: str, horizon_minutes: int = 15) -> Dict:
         return self._e.predict(lot_id, horizon_minutes, at=self._at, live_fill=self._live.get(lot_id))
 
-    def predict_all(self, horizon_minutes: int = 15) -> Dict[str, Dict]:
+    def predict_all(self, horizon_minutes: int = 15, at=None) -> Dict[str, Dict]:
+        # `at` is ignored — BoundPredictor is already fixed to self._at
         return {lid: self.predict(lid, horizon_minutes) for lid in LOT_IDS}
 
-    def get_forecast_snapshot(self, horizon_minutes: int = 15) -> Dict:
+    def get_forecast_snapshot(self, horizon_minutes: int = 15, at=None) -> Dict:
         preds = self.predict_all(horizon_minutes)
         return {
             "lot_fill_rates": {lid: preds[lid]["fill_rate"] for lid in LOT_IDS},
