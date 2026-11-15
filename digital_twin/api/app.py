@@ -8,6 +8,7 @@ import math
 import os
 import re
 import statistics
+import threading
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -461,6 +462,64 @@ def compare_strategies(scenario: str):
             "successful_park_rate": round(m["successful_park_rate"], 4) if m.get("successful_park_rate") is not None else None,
         }
     return {"scenario": scenario, "comparison": results}
+
+
+# ── Async compare endpoints (used by the UI to avoid proxy timeout) ────────────
+# Keyed by scenario name; only one concurrent comparison per scenario.
+_compare_jobs: dict = {}  # scenario -> {"status": "running"|"done"|"error", "result": ..., "error": ...}
+
+
+@app.post("/compare/{scenario}/start", tags=["Simulation"])
+def compare_start(scenario: str):
+    """Launch a background comparison job for the given scenario."""
+    scenario_file = SCENARIO_DIR / f"{scenario}.yaml"
+    if not scenario_file.exists():
+        available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario}' not found. Available: {available}")
+
+    def _run():
+        conn = get_conn()
+        results = {}
+        for code in ["B1", "B2", "B3", "P"]:
+            strategy = STRATEGIES[code]
+            sc = ScenarioLoader.load(scenario_file)
+            engine = SimulationEngine()
+            run_id = f"api-cmp-{uuid.uuid4().hex[:6]}"
+            try:
+                result = engine.run(sc, strategy, conn, run_id=run_id)
+            except Exception as e:
+                _compare_jobs[scenario] = {"status": "error", "error": f"Strategy {code} failed: {type(e).__name__}: {e}"}
+                return
+            m = result.metrics
+            results[code] = {
+                "overflow_events":      m.get("overflow_events_count"),
+                "avg_search_time_min":  round(m["avg_search_time_min"], 2) if m.get("avg_search_time_min") is not None else None,
+                "avg_wait_time_min":    round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   is not None else None,
+                "avg_gate_queue":       round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      is not None else None,
+                "peak_gate_queue":      m.get("max_gate_queue"),
+                "successful_park_rate": round(m["successful_park_rate"], 4) if m.get("successful_park_rate") is not None else None,
+            }
+        _compare_jobs[scenario] = {"status": "done", "result": {"scenario": scenario, "comparison": results}}
+
+    _compare_jobs[scenario] = {"status": "running"}
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "scenario": scenario}
+
+
+@app.get("/compare/{scenario}/status", tags=["Simulation"])
+def compare_status(scenario: str):
+    """Poll the status of an in-progress or completed comparison."""
+    job = _compare_jobs.get(scenario)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No comparison job found for this scenario. POST /compare/{scenario}/start first.")
+    if job["status"] == "done":
+        _compare_jobs.pop(scenario, None)
+        return {"status": "done", **job["result"]}
+    if job["status"] == "error":
+        err = job.get("error", "Unknown error")
+        _compare_jobs.pop(scenario, None)
+        return {"status": "error", "error": err}
+    return {"status": "running"}
 
 
 @app.get("/events", tags=["Campus"])
