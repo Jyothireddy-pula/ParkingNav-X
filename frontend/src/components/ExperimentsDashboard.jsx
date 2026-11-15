@@ -64,7 +64,7 @@ useEffect(() => {
         if (!reconstructed[item.scenario]) reconstructed[item.scenario] = {}
         const means = {}
         Object.entries(item.metrics || {}).forEach(([metric, stats]) => {
-          means[metric] = stats.mean ?? null
+          means[metric] = stats != null ? (stats.mean ?? null) : null
         })
         reconstructed[item.scenario][item.strategy] = means
       })
@@ -99,7 +99,7 @@ useEffect(() => {
       if (!reconstructed[item.scenario]) reconstructed[item.scenario] = {}
       const means = {}
       Object.entries(item.metrics || {}).forEach(([metric, stats]) => {
-        means[metric] = stats.mean ?? null
+        means[metric] = stats != null ? (stats.mean ?? null) : null
       })
       reconstructed[item.scenario][item.strategy] = means
     })
