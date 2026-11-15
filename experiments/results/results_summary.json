@@ -1,1 +1,1045 @@
-{}
+{
+  "E1_normal_day|B1": {
+    "scenario": "E1_normal_day",
+    "strategy": "B1",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 3.9665,
+        "std": 0.1503,
+        "ci_95": 0.0538,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9976,
+        "std": 0.0024,
+        "ci_95": 0.0009,
+        "n": 30
+      }
+    }
+  },
+  "E1_normal_day|B2": {
+    "scenario": "E1_normal_day",
+    "strategy": "B2",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5654,
+        "std": 0.1061,
+        "ci_95": 0.038,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E1_normal_day|B3": {
+    "scenario": "E1_normal_day",
+    "strategy": "B3",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.971,
+        "std": 0.0705,
+        "ci_95": 0.0252,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E1_normal_day|P": {
+    "scenario": "E1_normal_day",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.834,
+        "std": 0.6183,
+        "ci_95": 0.2213,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0015,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E2_event_placement|B1": {
+    "scenario": "E2_event_placement",
+    "strategy": "B1",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 3.5399,
+        "std": 0.1044,
+        "ci_95": 0.0373,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.005,
+        "std": 0.0026,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0026,
+        "std": 0.0024,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E2_event_placement|B2": {
+    "scenario": "E2_event_placement",
+    "strategy": "B2",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.7563,
+        "std": 0.1146,
+        "ci_95": 0.041,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.005,
+        "std": 0.0026,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0026,
+        "std": 0.0024,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9994,
+        "std": 0.0011,
+        "ci_95": 0.0004,
+        "n": 30
+      }
+    }
+  },
+  "E2_event_placement|B3": {
+    "scenario": "E2_event_placement",
+    "strategy": "B3",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.2281,
+        "std": 0.0871,
+        "ci_95": 0.0312,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.005,
+        "std": 0.0026,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0026,
+        "std": 0.0024,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E2_event_placement|P": {
+    "scenario": "E2_event_placement",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.9051,
+        "std": 0.3076,
+        "ci_95": 0.1101,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.005,
+        "std": 0.0026,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0026,
+        "std": 0.0024,
+        "ci_95": 0.0009,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9991,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E3_lot_closure|B1": {
+    "scenario": "E3_lot_closure",
+    "strategy": "B1",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.8719,
+        "std": 0.1042,
+        "ci_95": 0.0373,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0017,
+        "std": 0.0017,
+        "ci_95": 0.0006,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0007,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.998,
+        "std": 0.0021,
+        "ci_95": 0.0008,
+        "n": 28
+      }
+    }
+  },
+  "E3_lot_closure|B2": {
+    "scenario": "E3_lot_closure",
+    "strategy": "B2",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5502,
+        "std": 0.1108,
+        "ci_95": 0.0397,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0017,
+        "std": 0.0017,
+        "ci_95": 0.0006,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0007,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9987,
+        "std": 0.002,
+        "ci_95": 0.0007,
+        "n": 28
+      }
+    }
+  },
+  "E3_lot_closure|B3": {
+    "scenario": "E3_lot_closure",
+    "strategy": "B3",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.7036,
+        "std": 0.127,
+        "ci_95": 0.0454,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0017,
+        "std": 0.0017,
+        "ci_95": 0.0006,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0007,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9989,
+        "std": 0.0016,
+        "ci_95": 0.0006,
+        "n": 28
+      }
+    }
+  },
+  "E3_lot_closure|P": {
+    "scenario": "E3_lot_closure",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.8368,
+        "std": 0.6141,
+        "ci_95": 0.2198,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9988,
+        "std": 0.0019,
+        "ci_95": 0.0007,
+        "n": 30
+      }
+    }
+  },
+  "E4_gate_closure|B1": {
+    "scenario": "E4_gate_closure",
+    "strategy": "B1",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 3.9559,
+        "std": 0.1403,
+        "ci_95": 0.0502,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0058,
+        "std": 0.0057,
+        "ci_95": 0.002,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0037,
+        "std": 0.0041,
+        "ci_95": 0.0015,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9977,
+        "std": 0.0023,
+        "ci_95": 0.0009,
+        "n": 28
+      }
+    }
+  },
+  "E4_gate_closure|B2": {
+    "scenario": "E4_gate_closure",
+    "strategy": "B2",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5986,
+        "std": 0.1414,
+        "ci_95": 0.0506,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0058,
+        "std": 0.0057,
+        "ci_95": 0.002,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0037,
+        "std": 0.0041,
+        "ci_95": 0.0015,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9993,
+        "std": 0.0015,
+        "ci_95": 0.0006,
+        "n": 28
+      }
+    }
+  },
+  "E4_gate_closure|B3": {
+    "scenario": "E4_gate_closure",
+    "strategy": "B3",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.097,
+        "std": 0.2092,
+        "ci_95": 0.0748,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0058,
+        "std": 0.0057,
+        "ci_95": 0.002,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0037,
+        "std": 0.0041,
+        "ci_95": 0.0015,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9993,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 28
+      }
+    }
+  },
+  "E4_gate_closure|P": {
+    "scenario": "E4_gate_closure",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.7433,
+        "std": 0.3118,
+        "ci_95": 0.1116,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0053,
+        "std": 0.0056,
+        "ci_95": 0.002,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0033,
+        "std": 0.0041,
+        "ci_95": 0.0015,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9991,
+        "std": 0.0015,
+        "ci_95": 0.0006,
+        "n": 30
+      }
+    }
+  },
+  "E5_noise_0|B1": {
+    "scenario": "E5_noise_0",
+    "strategy": "B1",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 3.9995,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0037,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0017,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E5_noise_0|B2": {
+    "scenario": "E5_noise_0",
+    "strategy": "B2",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.3852,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0037,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0017,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E5_noise_0|B3": {
+    "scenario": "E5_noise_0",
+    "strategy": "B3",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.2371,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0037,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0017,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E5_noise_0|P": {
+    "scenario": "E5_noise_0",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.4697,
+        "std": 0.374,
+        "ci_95": 0.1338,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0016,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0004,
+        "std": 0.0009,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 28
+      }
+    }
+  },
+  "E6_ablation|B1": {
+    "scenario": "E6_ablation",
+    "strategy": "B1",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 4.2473,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E6_ablation|B2": {
+    "scenario": "E6_ablation",
+    "strategy": "B2",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.3619,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E6_ablation|B3": {
+    "scenario": "E6_ablation",
+    "strategy": "B3",
+    "n_runs": 2,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.3034,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 2
+      },
+      "successful_park_rate": null
+    }
+  },
+  "E6_ablation|P": {
+    "scenario": "E6_ablation",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.1122,
+        "std": 0.027,
+        "ci_95": 0.0097,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0013,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9983,
+        "std": 0.0015,
+        "ci_95": 0.0006,
+        "n": 28
+      }
+    }
+  },
+  "E5_noise_10|P": {
+    "scenario": "E5_noise_10",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5654,
+        "std": 0.1061,
+        "ci_95": 0.038,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E5_noise_20|P": {
+    "scenario": "E5_noise_20",
+    "strategy": "P",
+    "n_runs": 30,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5654,
+        "std": 0.1061,
+        "ci_95": 0.038,
+        "n": 30
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0013,
+        "std": 0.0012,
+        "ci_95": 0.0004,
+        "n": 30
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 30
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 30
+      },
+      "successful_park_rate": {
+        "mean": 0.9992,
+        "std": 0.0014,
+        "ci_95": 0.0005,
+        "n": 30
+      }
+    }
+  },
+  "E6_ablation_B|P": {
+    "scenario": "E6_ablation_B",
+    "strategy": "P",
+    "n_runs": 29,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 1.3423,
+        "std": 0.519,
+        "ci_95": 0.1889,
+        "n": 29
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0014,
+        "std": 0.0013,
+        "ci_95": 0.0005,
+        "n": 29
+      },
+      "avg_gate_queue": {
+        "mean": 0.0003,
+        "std": 0.0008,
+        "ci_95": 0.0003,
+        "n": 29
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 29
+      },
+      "successful_park_rate": {
+        "mean": 0.9982,
+        "std": 0.0015,
+        "ci_95": 0.0005,
+        "n": 29
+      }
+    }
+  },
+  "E6_ablation_C|P": {
+    "scenario": "E6_ablation_C",
+    "strategy": "P",
+    "n_runs": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.4568,
+        "std": 0.0708,
+        "ci_95": 0.062,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci_95": 0.0003,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 5
+      },
+      "successful_park_rate": {
+        "mean": 0.9985,
+        "std": 0.0014,
+        "ci_95": 0.0012,
+        "n": 5
+      }
+    }
+  },
+  "E6_ablation_D|P": {
+    "scenario": "E6_ablation_D",
+    "strategy": "P",
+    "n_runs": 5,
+    "metrics": {
+      "avg_search_time_min": {
+        "mean": 2.5614,
+        "std": 0.0903,
+        "ci_95": 0.0791,
+        "n": 5
+      },
+      "avg_wait_time_min": {
+        "mean": 0.0006,
+        "std": 0.0004,
+        "ci_95": 0.0003,
+        "n": 5
+      },
+      "avg_gate_queue": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 5
+      },
+      "overflow_events": {
+        "mean": 0.0,
+        "std": 0.0,
+        "ci_95": 0.0,
+        "n": 5
+      },
+      "successful_park_rate": {
+        "mean": 0.9985,
+        "std": 0.0014,
+        "ci_95": 0.0012,
+        "n": 5
+      }
+    }
+  }
+}
