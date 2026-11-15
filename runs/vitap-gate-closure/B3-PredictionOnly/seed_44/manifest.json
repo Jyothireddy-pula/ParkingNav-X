@@ -1,0 +1,10 @@
+{
+  "scenario_id": "vitap-gate-closure",
+  "strategy_name": "B3-PredictionOnly",
+  "random_seed": 44,
+  "config_hash": "e0adfaa2",
+  "git_commit": "e9a1c5bb3e4d87294edd9e64f87661adc4d52550",
+  "recorded_at": "2026-10-16T05:30:43.158402+00:00",
+  "vehicle_count": 400,
+  "timestep_count": 600
+}
