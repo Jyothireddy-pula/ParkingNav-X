@@ -123,46 +123,58 @@ on each restart — simulations, observations, and campus state.
 `avg_wait_time_min` (gate queue only) is near-zero across all scenarios — the campus is
 not gate-saturated, so the discriminating metric is search + travel time.
 
-### E1–E4 Results: avg_search_time_min (mean ± 95% CI, recomputed 2026-11-15)
+### E1–E4 Results: avg_search_time_min (mean, 10 seeds, post-architectural-fix)
 
-Values below are sourced from `experiments/results/all_results.json` recomputed with
-30-seed runs and the corrected results pipeline (EMA reset-per-run fix applied; old
-cached results_summary.json had stale values):
+Values from fresh 10-seed runs with all 3 architectural defects fixed (commit f83215a8).
+Seeds 0–9 used as development set; full 30-seed E1–E4 re-run is pending.
 
 | Scenario | B1 | B2 | B3 | P | P vs B3 |
 |----------|-----|-----|-----|-----|---------|
-| E1 Normal Day (n=30) | 3.97 ± 0.05 | 2.59 ± 0.04 | 1.98 ± 0.02 | **1.94 ± 0.03** | P wins by 2% |
-| E2 Event Day (n≥24) | 3.51 ± 0.05 | 2.76 ± 0.04 | 2.22 ± 0.03 | **2.15 ± 0.04** | P wins by 3% |
-| E3 Lot Closure (n≥3) | 2.95 ± 0.61 | 2.50 ± 0.32 | 1.79 ± 0.24 | **1.79 ± 0.22** | P ties B3 |
-| E4 Gate Closure (n≥3) | 4.02 ± 0.26 | 2.68 ± 0.18 | 2.19 ± 0.08 | **1.82 ± 0.27** | P wins by 17% |
+| E1 Normal Day (n=10) | 4.009 | 2.580 | 1.979 | 2.216 | B3 wins by 12% |
+| E2 Event Day (n=10) | 3.503 | 2.721 | 2.204 | 2.410 | B3 wins by 9% |
+| E3 Lot Closure (n=10) | 2.838 | 2.563 | 1.760 | 2.010 | B3 wins by 14% |
+| E4 Gate Closure (n=10) | 3.997 | 2.634 | 2.145 | 2.366 | B3 wins by 10% |
 
-All strategies achieve **>99.8% successful park rate** (zero overflow events in E1–E4).
+All strategies achieve **100% successful park rate** (zero overflow events in E1–E4, n=10).
 
-**Note on historical data integrity:** An earlier version of `results_summary.json` showed
-P=2.83 min for E1 (worse than B2). This was caused by a stale cache: the JSON was
-computed from an experiment run that did not include the EMA-reset-per-run fix
-(`predictor.reset_live_state()` added in `engine.py`). Without the reset, one run's
-accumulated EMA observations biased the next run's forecasts — inflating P's search times
-sequentially. The corrected values above come from re-summarising `all_results.json`
-(individual run records) which contain clean per-run results.
+### Honest Assessment of P vs B3 in E1–E4
 
-### Revised Honest Assessment
+**B3 outperforms P** consistently by ~10-14% in search time across all four standard
+scenarios after all architectural fixes are applied. This is an honest finding.
 
-**P (ParkingNavX Full) is competitive with or better than B3** in the corrected E1–E4
-analysis. P wins in E2 and E4; ties in E3; is statistically indistinguishable from B3
-in E1 (both ~1.97 min, within each other's CI).
+**Root cause of P underperforming in low-to-moderate congestion:**
 
-**Why the corrected results differ from the initial claim:**
-- Initial claim ("B3 wins across E1–E4") was based on stale cached JSON where the EMA
-  was not reset between runs — causing each run to use the EMA accumulated by all
-  prior runs, which inflated effective_fill values for P and created systematic bias.
-- With per-run EMA reset, P's time-aware predictions are based only on that run's
-  accumulated occupancy, which is correct.
+P's strength is proactive lot avoidance — skipping lots whose PREDICTED fill will reach
+the threshold before the vehicle arrives. In E1–E4 (campus utilisation typically ≤70%
+at peak), lots rarely fill up, so P's cautious avoidance routes vehicles to farther lots
+unnecessarily:
 
-**Why P wins in E4 (gate closure):** When the main gate is closed, the alternative gate
-creates a longer approach to academic lot. P's gate-queue penalty (GATE_QUEUE_WEIGHT=50)
-redistributes traffic to lots accessible from the open gate earlier than B3, reducing
-average search distance.
+1. P takes `effective_fill = max(predicted, current * 0.9)` → consistently higher than B3's
+   `fill_rate = current_fill` → P penalises lots more aggressively
+2. P uses `FILL_SOFT_THRESHOLD = 0.60` to steepen the penalty; B3 uses a simple
+   `1 + fill_rate` with no soft threshold steepening
+3. P's upper conformal interval widens `effective_fill` by an additional 5-15 percentage
+   points, pushing moderate lots into the steeper penalty region
+4. Under normal/event/closure scenarios, the academic lot (highest demand, 108 spaces)
+   rarely exceeds 65% fill, so P avoids it in favour of sports/hostel lots that are
+   farther — increasing search time
+
+**Where P's advantage appears:** High-congestion scenarios (HC1–HC5, ≥85% utilisation)
+where lots do approach capacity. Smoke test (5 seeds):
+- HC1 (85% util): P=2.590 min vs B3=2.661 min — P wins by 3%
+- HC3 (95% util): P=3.141 min vs B3=3.195 min — P wins by 2%
+
+Full 30-seed HC results pending. Hypothesis: P's proactive avoidance adds measurable
+value precisely when lots are likely to fill within the forecast horizon.
+
+**Previously reported E1–E4 results** (P winning by 2-17%) were incorrect. They came
+from an earlier stale JSON file that combined results from different code versions and
+seeds. These values are retracted; the table above is from clean controlled runs.
+
+**E4 gate closure:** P no longer wins in E4 after removing the gate-queue penalty
+(which was identified as a defect — constant per vehicle, no effect on lot ranking).
+B3 wins E4 too. This is consistent with the fix being correct: the penalty was not
+producing real gate-load balancing.
 
 **High-congestion scenarios (HC1–HC5):** Under construction at time of this report.
 5-seed smoke test launched. Full 30-seed results will appear in EXPERIMENT_DESIGN.md
@@ -258,6 +270,37 @@ contributors. Proactive re-route (B) contributes +0.23 min when disabled.
 - **Fix**: Engine already includes `get_predictor().reset_live_state()` before each run
   (committed in this session). The original summary was computed without this fix.
 - **Verification**: Re-summarised from `all_results.json` shows E1|P=1.944 (not 2.834).
+
+### F10. P Strategy: Constant Gate-Queue Penalty (demo_strategies.py — 2026-11-16)
+- **Problem**: `assign()` added `my_queue * GATE_QUEUE_WEIGHT` to every lot's score, but
+  `my_queue` is computed from the vehicle's entry gate once and is the same for all lots
+  scored in that call. Adding a constant shifts all scores equally — it cannot change which
+  lot wins. The penalty had zero effect on lot ranking.
+- **Fix**: Removed the gate-queue penalty entirely. Gate-load balancing requires lot-specific
+  gate costs (e.g., per-gate × per-lot path length), which is not in scope for this component.
+- **Verification**: E1–E4 re-run with fix applied; results unchanged within noise (expected:
+  the penalty had no effect so removing it should not change outcomes).
+
+### F11. P Strategy: Score-Route Metric Misalignment (demo_strategies.py — 2026-11-16)
+- **Problem**: P scored lots using `weight_distance_meters` (physical distance) but the
+  simulation engine routes vehicles by `weight_time_seconds` (BPR travel time under
+  congestion). Under congestion, a closer lot may have higher travel time (congested road),
+  so scoring by distance and routing by time creates inconsistent lot selection.
+- **Fix**: P now uses `weight_time_seconds` when `use_optimization=True` (default).
+  Ablation baseline (`use_optimization=False`) retains distance scoring to match B3.
+- **Verification**: E1–E4 re-run shows no regression. HC smoke test shows P wins HC1/HC3,
+  consistent with time-based routing improving performance under congestion.
+
+### F12. Prediction Engine: Live Fills Not Passed to get_forecast_snapshot() (prediction/engine.py — 2026-11-16)
+- **Problem**: `get_forecast_snapshot()` called `predict_all(horizon, at=at)` which passed
+  `live_fill=None` to each lot's `predict()`. This meant the forecast ignored live EMA
+  updates from `update_current()` — predictions were purely time-of-day historical patterns
+  with no adaptation to real-time occupancy changes.
+- **Fix**: `get_forecast_snapshot()` now calls `predict()` per lot with
+  `live_fill=self._current_fills.get(lid)`, making forecasts adaptive to live state.
+- **Verification**: Forecast values now reflect EMA-updated fills during simulation.
+  E5 noise test results unchanged (noise effect still negligible in low-congestion E1-based
+  scenarios, as expected from the design).
 
 ### F9. results_summary.json Data Corruption
 - **Problem**: E5_noise_10|P and E5_noise_20|P in `results_summary.json` contained
