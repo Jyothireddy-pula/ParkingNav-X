@@ -1,22 +1,23 @@
 import React, { useState, useEffect } from 'react'
 import {
-  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, RadarChart, Radar, PolarGrid,
+  PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
 import { api } from '../api'
 
 const STRATEGIES = ['B1', 'B2', 'B3', 'P']
 const STRATEGY_COLORS = { B1: '#94a3b8', B2: '#60a5fa', B3: '#a78bfa', P: '#10b981' }
 const METRICS = [
-  { key: 'avg_search_time_min', label: 'Avg Search Time (min)', lower: true },
-  { key: 'avg_wait_time_min',   label: 'Avg Wait Time (min)',   lower: true },
-  { key: 'avg_gate_queue',      label: 'Avg Gate Queue',        lower: true },
-  { key: 'overflow_events',     label: 'Overflow Events',       lower: true },
+  { key: 'avg_search_time_min',  label: 'Avg Search Time (min)', lower: true },
+  { key: 'avg_wait_time_min',    label: 'Avg Wait Time (min)',   lower: true },
+  { key: 'avg_gate_queue',       label: 'Avg Gate Queue',        lower: true },
+  { key: 'overflow_events',      label: 'Overflow Events',       lower: true },
+  { key: 'successful_park_rate', label: 'Park Success Rate',     lower: false },
 ]
 
 export default function ExperimentsDashboard() {
   const [results, setResults] = useState({})
-  const [statSummary, setStatSummary] = useState(null)
 const [loading, setLoading] = useState(false)
 const [scenarios, setScenarios] = useState([])
 const [selectedScenario, setSelectedScenario] = useState('')
@@ -28,18 +29,27 @@ useEffect(() => {
   const loadScenarios = async () => {
     try {
       setScenarioError('')
+
       const res = await api.getScenarios()
       const availableScenarios = res.data.scenarios ?? []
+
       setScenarios(availableScenarios)
+
       if (availableScenarios.length > 0) {
         setSelectedScenario(current =>
-          availableScenarios.includes(current) ? current : availableScenarios[0]
+          availableScenarios.includes(current)
+            ? current
+            : availableScenarios[0]
         )
       } else {
         setScenarioError('The API returned no scenarios.')
       }
     } catch (error) {
-      setScenarioError(error.response?.data?.detail || error.message || 'Failed to load scenarios.')
+      setScenarioError(
+        error.response?.data?.detail ||
+        error.message ||
+        'Failed to load scenarios.'
+      )
     }
   }
 
@@ -48,8 +58,6 @@ useEffect(() => {
       const sumRes = await api.getExperimentSummary()
       const summary = sumRes.data
       if (!summary || Object.keys(summary).length === 0) return
-      setStatSummary(summary)
-      // Reconstruct per-scenario/strategy mean values for the chart
       const reconstructed = {}
       Object.values(summary).forEach(item => {
         if (!item.scenario || !item.strategy) return
@@ -62,6 +70,9 @@ useEffect(() => {
       })
       if (Object.keys(reconstructed).length > 0) {
         setResults(reconstructed)
+        setSelectedScenario(current =>
+          reconstructed[current] ? current : Object.keys(reconstructed)[0]
+        )
       }
     } catch { /* silent — existing results are optional */ }
   }
@@ -79,7 +90,6 @@ useEffect(() => {
   setLoading(true)
   setProgress([])
   setResults({})
-  setStatSummary(null)
 
   const newResults = {}
 
@@ -107,25 +117,52 @@ useEffect(() => {
         ])
       }
     }
-    // Fetch statistical summary (std dev + 95% CI) after experiments complete
-    try {
-      const sumRes = await api.getExperimentSummary()
-      // Backend returns { "scenario|strategy": { scenario, strategy, n, metrics: { metric: {mean,std,ci95,n} } } }
-      // Keep keyed by "scenario|strategy" so each table cell gets the correct per-combination stats
-      setStatSummary(sumRes.data || {})
-    } catch { /* summary is optional — table still shows mean values */ }
   } finally {
     setLoading(false)
   }
 }
 
-  // Build chart data: one bar per strategy for the selected metric only
+  // Build chart data for selected scenario
   const scenarioData = results[selectedScenario] || {}
-  const activeMeta = METRICS.find(m => m.key === selectedMetric) || METRICS[0]
-  const chartData = STRATEGIES.map(s => ({
-    strategy: s,
-    value: scenarioData[s]?.[activeMeta.key] ?? null,
+  const chartData = METRICS.map(m => ({
+    metric: m.label,
+    B1: scenarioData.B1?.[m.key] ?? null,
+    B2: scenarioData.B2?.[m.key] ?? null,
+    B3: scenarioData.B3?.[m.key] ?? null,
+    P: scenarioData.P?.[m.key] ?? null,
   }))
+
+  // Radar data (normalized) for selected scenario
+  const metricMaxes = METRICS.map(m => {
+  const values = STRATEGIES
+    .map(s => scenarioData[s]?.[m.key])
+    .filter(v => typeof v === 'number' && Number.isFinite(v))
+
+  return values.length > 0
+    ? Math.max(...values, 1)
+    : null
+})
+  const radarData = STRATEGIES.map(strategy => {
+  const point = { strategy }
+
+  METRICS.forEach((m, i) => {
+    const val = scenarioData[strategy]?.[m.key]
+    const max = metricMaxes[i]
+
+    if (
+      typeof val !== 'number' ||
+      !Number.isFinite(val) ||
+      max === null
+    ) {
+      point[m.label] = null
+    } else {
+      // Lower values are better for these metrics.
+      point[m.label] = m.lower ? 1 - val / max : val / max
+    }
+  })
+
+  return point
+})
 
   // Summary table: all scenarios × all strategies
   const hasResults = Object.keys(results).length > 0
@@ -139,20 +176,13 @@ useEffect(() => {
             Compare available scenarios across the supported strategies.
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={runExperiments}
-            disabled={loading}
-            className="px-4 py-2 bg-vitap-blue text-white rounded-md text-sm font-medium hover:bg-blue-800 disabled:opacity-50"
-          >
-            {loading ? '⏳ Running Experiments...' : '🔬 Run All Experiments'}
-          </button>
-          {loading && (
-            <p className="text-xs text-amber-600 font-medium">
-              ⏳ Running on free hosting — this takes 2–3 minutes, please wait…
-            </p>
-          )}
-        </div>
+        <button
+          onClick={runExperiments}
+          disabled={loading}
+          className="px-4 py-2 bg-vitap-blue text-white rounded-md text-sm font-medium hover:bg-blue-800 disabled:opacity-50"
+        >
+          {loading ? '⏳ Running Experiments...' : '🔬 Run All Experiments'}
+        </button>
       </div>
 
       {/* Progress log */}
@@ -169,14 +199,16 @@ useEffect(() => {
           <div className="flex gap-4 items-center flex-wrap">
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Scenario</label>
-              {scenarioError && (
-                <p className="text-sm text-red-600" role="alert">{scenarioError}</p>
-              )}
               <select
                 value={selectedScenario}
                 onChange={e => setSelectedScenario(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
               >
+                {scenarioError && (
+                  <p className="text-sm text-red-600" role="alert">
+                    {scenarioError}
+                  </p>
+                )}
                 {scenarios
                   .filter(s => results[s])
                   .map(s => (
@@ -202,48 +234,38 @@ useEffect(() => {
 
       {hasResults && (
         <>
-          {/* Strategy Comparison Bar Chart — one bar per strategy for the selected metric */}
+          {/* Strategy Comparison Bar Chart */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">
               Strategy Comparison — {selectedScenario.replace(/_/g, ' ')}
             </h3>
-            <p className="text-xs text-gray-400 mb-3">
-              {activeMeta.label} · {activeMeta.lower ? 'lower is better ↓' : 'higher is better ↑'}
-            </p>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="strategy" tick={{ fontSize: 13, fontWeight: 600 }} />
+                <XAxis dataKey="metric" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => [v?.toFixed ? v.toFixed(3) : v, activeMeta.label]} />
-                <Bar dataKey="value" name={activeMeta.label} radius={[4, 4, 0, 0]}>
-                  {chartData.map(entry => (
-                    <Cell key={entry.strategy} fill={STRATEGY_COLORS[entry.strategy]} />
-                  ))}
-                </Bar>
+                <Tooltip />
+                <Legend />
+                {STRATEGIES.map(s => (
+                  <Bar key={s} dataKey={s} fill={STRATEGY_COLORS[s]} />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
 
           {/* Summary Table (all scenarios) */}
           <div className="bg-white rounded-lg shadow p-4 overflow-x-auto">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700">Results Summary Table</h3>
-              {statSummary && (
-                <span className="text-xs text-gray-400 italic">σ = std dev · ±margin = 95% CI half-width</span>
-              )}
-            </div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Results Summary Table</h3>
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b bg-gray-50">
                   <th className="text-left py-2 px-3 text-gray-500">Scenario</th>
                   <th className="text-left py-2 px-3 text-gray-500">Strategy</th>
                   <th className="text-right py-2 px-3 text-gray-500">Search (min)</th>
-                  {statSummary && <th className="text-right py-2 px-3 text-gray-400">σ / 95% CI</th>}
                   <th className="text-right py-2 px-3 text-gray-500">Wait (min)</th>
-                  {statSummary && <th className="text-right py-2 px-3 text-gray-400">σ / 95% CI</th>}
                   <th className="text-right py-2 px-3 text-gray-500">Avg Queue</th>
                   <th className="text-right py-2 px-3 text-gray-500">Overflow</th>
+                  <th className="text-right py-2 px-3 text-green-700 font-semibold">Park Success %</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,16 +273,6 @@ useEffect(() => {
                   STRATEGIES.map((s, si) => {
                     const m = stratMap[s] || {}
                     const isParkingNav = s === 'P'
-                    // statSummary shape: { "scenario|strategy": { metrics: { metric: {mean,std,ci95,n} } } }
-                    const ss = statSummary?.[`${scenario}|${s}`]
-                    const fmtCI = (metric) => {
-                      const d = ss?.metrics?.[metric]
-                      if (!d) return '—'
-                      const std = typeof d.std === 'number' ? d.std.toFixed(3) : '?'
-                      // ci95 is a half-width margin: mean ± ci95
-                      const margin = typeof d.ci95 === 'number' ? d.ci95.toFixed(3) : '?'
-                      return <span className="text-gray-400 leading-tight">σ={std}<br/>±{margin}</span>
-                    }
                     return (
                       <tr key={`${scenario}-${s}`} className={`border-b ${isParkingNav ? 'bg-green-50 font-semibold' : ''} ${si === 0 ? 'border-t-2 border-gray-300' : ''}`}>
                         <td className="py-1.5 px-3 text-gray-600">{si === 0 ? scenario.replace(/_/g, ' ') : ''}</td>
@@ -268,11 +280,14 @@ useEffect(() => {
                           <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${isParkingNav ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>{s}</span>
                         </td>
                         <td className="text-right py-1.5 px-3">{m.avg_search_time_min ?? '—'}</td>
-                        {statSummary && <td className="text-right py-1.5 px-3 leading-tight">{fmtCI('avg_search_time_min')}</td>}
                         <td className="text-right py-1.5 px-3">{m.avg_wait_time_min ?? '—'}</td>
-                        {statSummary && <td className="text-right py-1.5 px-3 leading-tight">{fmtCI('avg_wait_time_min')}</td>}
                         <td className="text-right py-1.5 px-3">{m.avg_gate_queue ?? '—'}</td>
                         <td className="text-right py-1.5 px-3">{m.overflow_events ?? '—'}</td>
+                        <td className={`text-right py-1.5 px-3 font-medium ${isParkingNav ? 'text-green-700' : ''}`}>
+                          {m.successful_park_rate != null
+                            ? `${(m.successful_park_rate * 100).toFixed(1)}%`
+                            : '—'}
+                        </td>
                       </tr>
                     )
                   })
