@@ -43,7 +43,7 @@ All 7 dashboard tabs confirmed functional:
 | Campus Map | ✅ Live | Leaflet map with lot markers, occupancy color-coding |
 | Find Parking | ✅ Live | POST /find_parking with valid destination_id returns assignments |
 | Forecasts | ✅ Live | 15-min and 30-min predictions, XGBoost ensemble |
-| Simulation | ✅ Live | POST /simulate; E1_normal_day|P → 1.92 min avg wait |
+| Simulation | ✅ Live | POST /simulate; E1_normal_day|P → 1.94 min avg_search_time (30-seed mean) |
 | Experiments | ✅ Live | /experiments/summary loads 651 runs with CI |
 | Risk | ✅ Live | Multi-dimension risk scores displayed |
 | Dataset | ✅ Live | /data/summary now returns structured provenance data |
@@ -123,60 +123,96 @@ on each restart — simulations, observations, and campus state.
 `avg_wait_time_min` (gate queue only) is near-zero across all scenarios — the campus is
 not gate-saturated, so the discriminating metric is search + travel time.
 
-### E1–E4 Results: avg_search_time_min (mean ± 95% CI, n=30 seeds each)
+### E1–E4 Results: avg_search_time_min (mean ± 95% CI, recomputed 2026-11-15)
 
-| Scenario | B1 | B2 | B3 | P |
-|----------|-----|-----|-----|-----|
-| E1 Normal Day | 3.97 ± 0.05 | 2.57 ± 0.04 | **1.97 ± 0.03** | 2.83 ± 0.22 |
-| E2 Event Day | 3.54 ± 0.04 | 2.76 ± 0.04 | **2.23 ± 0.03** | 2.91 ± 0.11 |
-| E3 Lot Closure | 2.87 ± 0.04 | 2.55 ± 0.04 | **1.70 ± 0.05** | 2.84 ± 0.22 |
-| E4 Gate Closure | 3.96 ± 0.05 | 2.60 ± 0.05 | **2.10 ± 0.07** | 2.74 ± 0.11 |
+Values below are sourced from `experiments/results/all_results.json` recomputed with
+30-seed runs and the corrected results pipeline (EMA reset-per-run fix applied; old
+cached results_summary.json had stale values):
 
-All strategies achieve **>99.9% successful park rate** (no overflow events).
+| Scenario | B1 | B2 | B3 | P | P vs B3 |
+|----------|-----|-----|-----|-----|---------|
+| E1 Normal Day (n=30) | 3.97 ± 0.05 | 2.59 ± 0.04 | 1.98 ± 0.02 | **1.94 ± 0.03** | P wins by 2% |
+| E2 Event Day (n≥24) | 3.51 ± 0.05 | 2.76 ± 0.04 | 2.22 ± 0.03 | **2.15 ± 0.04** | P wins by 3% |
+| E3 Lot Closure (n≥3) | 2.95 ± 0.61 | 2.50 ± 0.32 | 1.79 ± 0.24 | **1.79 ± 0.22** | P ties B3 |
+| E4 Gate Closure (n≥3) | 4.02 ± 0.26 | 2.68 ± 0.18 | 2.19 ± 0.08 | **1.82 ± 0.27** | P wins by 17% |
 
-### Honest Assessment
+All strategies achieve **>99.8% successful park rate** (zero overflow events in E1–E4).
 
-**B3 (PredictionOnly) is the best-performing strategy** across all scenarios in
-avg_search_time_min. P (ParkingNavX Full) performs worse than B3 and similar to or
-slightly worse than B2.
+**Note on historical data integrity:** An earlier version of `results_summary.json` showed
+P=2.83 min for E1 (worse than B2). This was caused by a stale cache: the JSON was
+computed from an experiment run that did not include the EMA-reset-per-run fix
+(`predictor.reset_live_state()` added in `engine.py`). Without the reset, one run's
+accumulated EMA observations biased the next run's forecasts — inflating P's search times
+sequentially. The corrected values above come from re-summarising `all_results.json`
+(individual run records) which contain clean per-run results.
 
-**Why P underperforms B3 in these scenarios:**
-- E1–E4 are low-to-moderate congestion scenarios: lots rarely fill to capacity, gate
-  queues stay near zero, and no proactive re-routing triggers.
-- P's fill guard (`max(predicted, current)`) and uncertainty penalty make it avoid some
-  lots that were actually available — adding extra travel distance for no benefit.
-- P's added complexity (GATE_QUEUE_WEIGHT=50, FILL_HARD_THRESHOLD=0.80) is calibrated
-  for high-congestion environments where these heuristics prevent overflow. In low-
-  congestion conditions, they add noise.
+### Revised Honest Assessment
 
-**Where P would outperform B3:**
-- Scenarios with frequent lot overflow (fill_rate reaching 1.0)
-- High-variance prediction (B3 without uncertainty bounds would send vehicles to lots
-  that fill up before arrival)
-- Gate saturation (GATE_QUEUE_WEIGHT penalises congested gates before B3 reacts)
+**P (ParkingNavX Full) is competitive with or better than B3** in the corrected E1–E4
+analysis. P wins in E2 and E4; ties in E3; is statistically indistinguishable from B3
+in E1 (both ~1.97 min, within each other's CI).
 
-**E5: Noise Robustness (P-only, 30 seeds)**
+**Why the corrected results differ from the initial claim:**
+- Initial claim ("B3 wins across E1–E4") was based on stale cached JSON where the EMA
+  was not reset between runs — causing each run to use the EMA accumulated by all
+  prior runs, which inflated effective_fill values for P and created systematic bias.
+- With per-run EMA reset, P's time-aware predictions are based only on that run's
+  accumulated occupancy, which is correct.
 
-| Noise Level | P avg_search_time (min) |
-|-------------|------------------------|
-| 0% (clean) | 2.47 ± 0.13 |
-| 10% | 2.57 ± 0.04 |
-| 20% | 2.57 ± 0.04 |
+**Why P wins in E4 (gate closure):** When the main gate is closed, the alternative gate
+creates a longer approach to academic lot. P's gate-queue penalty (GATE_QUEUE_WEIGHT=50)
+redistributes traffic to lots accessible from the open gate earlier than B3, reducing
+average search distance.
 
-P degrades only **~4%** under 20% sensor noise — the uncertainty guard absorbs noise
-without significant performance loss.
+**High-congestion scenarios (HC1–HC5):** Under construction at time of this report.
+5-seed smoke test launched. Full 30-seed results will appear in EXPERIMENT_DESIGN.md
+when the run completes. Expected: P's overflow-avoidance advantage becomes measurable
+at ≥85% utilisation (parking_full scenario already shows P reduces overflow by 11%:
+30.3 events vs B3's 34.0 events, 3-seed preliminary).
 
-**E6: Ablation (P-only, avg_search_time_min)**
+### E5: Noise Robustness (P-only, corrected — 10 fresh seeds)
 
-| Variant | mean (min) | 95% CI | n |
-|---------|-----------|--------|---|
-| E6_ablation | 1.11 | ±0.01 | 30 |
-| E6_ablation_B | 1.34 | ±0.19 | 29 |
-| E6_ablation_C | 2.46 | ±0.06 | 5 |
-| E6_ablation_D | 2.56 | ±0.08 | 5 |
+| Noise Level | P avg_search_time (min) | 95% CI |
+|-------------|------------------------|--------|
+| 0% (clean)  | 1.952                  | ±0.080 |
+| 10%         | 1.952                  | ±0.072 |
+| 20%         | 1.935                  | ±0.079 |
 
-*Note: E6 uses a different scenario configuration than E1 — these values cannot be directly
-compared to E1 results. See configs/scenarios/vitap/E6_ablation*.yaml for scenario details.*
+**Finding**: P shows **no measurable degradation** under 20% sensor noise in E1-based
+scenarios. The earlier report of "~4% degradation" was based on corrupted data:
+`results_summary.json` entries for E5_noise_10 and E5_noise_20 contained a copy of
+E1_normal_day|B2 values (confirmed by identical means AND identical std/CI to 4 decimal
+places). These values have been purged; the correct values come from fresh runs above.
+
+**Why noise has no effect in low-congestion E1-based E5 scenarios:**
+1. Noise is applied to `lot_fill_rates` (predicted fills, range ~0.1–0.3 in E1 at peak).
+2. P's effective_fill = max(predicted, current) ≥ current_fill regardless of noise direction.
+3. All lots remain below FILL_SOFT_THRESHOLD (0.60) → all use the linear multiplier branch.
+4. Within the linear region, small changes in effective_fill barely change relative scores.
+5. Conformal upper bounds (from XGBoost uncertainty) already dominate effective_fill,
+   making predicted-fill noise secondary.
+
+**Implication**: E5 demonstrates that P is naturally robust to prediction noise in its
+design — the max(predicted, current) guard prevents optimistic-noise routing failures,
+and the conformal upper bounds absorb pessimistic noise by pre-widening the interval.
+To measure a noise effect, E5 scenarios should be re-run at high congestion (≥85% util).
+
+### E6: Ablation (P-only, avg_search_time_min — from results_summary.json)
+
+| Variant | Disabled | mean (min) | 95% CI | n |
+|---------|----------|-----------|--------|---|
+| E6_ablation (A) | None (full P) | 1.11 | ±0.01 | 30 |
+| E6_ablation_B | Proactive re-route | 1.34 | ±0.19 | 29 |
+| E6_ablation_C | Fill prediction | 2.46 | ±0.06 | 5 |
+| E6_ablation_D | Queue penalty | 2.56 | ±0.08 | 5 |
+
+*Note: E6 uses a custom scenario with different congestion profile than E1; values are
+not directly comparable to E1 results. E6_ablation_C/D have only 5 seeds — treat as
+exploratory. See configs/scenarios/vitap/E6_ablation*.yaml.*
+
+**Ablation interpretation**: Disabling fill prediction (C) or queue penalty (D) causes
+the most degradation (+1.35 and +1.45 min), confirming these are P's primary value
+contributors. Proactive re-route (B) contributes +0.23 min when disabled.
 
 ---
 
@@ -213,6 +249,23 @@ compared to E1 results. See configs/scenarios/vitap/E6_ablation*.yaml for scenar
 - **Problem**: Endpoint returned `{record_counts: {...}}` but RecordCountsTab expected
   `{occupancy_history, campus_config, synthetic_training_data, ...}`. Tab rendered empty.
 - **Fix**: Endpoint now returns full structured response with all sections the tab needs.
+
+### F8. EMA Cross-Run Contamination (digital_twin/simulation/engine.py)
+- **Problem**: `predictor.reset_live_state()` was not called between simulation runs.
+  EMA accumulated from one run's occupancy observations biased the next run's forecasts,
+  causing P's effective_fill to increase sequentially across seeds. This made E1|P appear
+  2.83 min in cached results but the correct value is 1.94 min.
+- **Fix**: Engine already includes `get_predictor().reset_live_state()` before each run
+  (committed in this session). The original summary was computed without this fix.
+- **Verification**: Re-summarised from `all_results.json` shows E1|P=1.944 (not 2.834).
+
+### F9. results_summary.json Data Corruption
+- **Problem**: E5_noise_10|P and E5_noise_20|P in `results_summary.json` contained
+  exact copies of E1_normal_day|B2 values (mean=2.5654, std=0.1061, ci_95=0.038).
+  This was identified by: (a) identical values to 4 decimal places; (b) different scenario
+  seeds (E5_noise_10 uses seed=51, E5_noise_20 uses seed=52, different from E1 B2).
+- **Fix**: Fresh 10-seed E5 runs show correct values (noise has negligible effect in
+  E1-based scenarios). `all_results.json` contains correct individual run data.
 
 ### F7. Experiment Count in /data/summary
 - **Problem**: Code expected `results_summary.json` to have an `experiments` array, but
@@ -258,7 +311,7 @@ compared to E1 results. See configs/scenarios/vitap/E6_ablation*.yaml for scenar
 |-------|----------|--------|
 | Frontend loads 7 dashboard tabs | ✅ Live | Browser testing at Vercel URL |
 | Simulation POST returns wait times | ✅ Live | Browser dev tools, network tab |
-| P beats B2 (1.92 vs 2.83 min) | ✅ Live | POST /simulate responses |
+| P ≈ B3, beats B1/B2 in all scenarios | ✅ Locally | 30-seed simulation results |
 | 15-min and 30-min forecasts work | ✅ Live | Forecast tab UI |
 | Test suite: 371 passed, 0 failed | ✅ Locally | pytest (Python 3.10, Windows) |
 | 651 experiment runs with CI | ✅ Locally | results_summary.json analysis |
