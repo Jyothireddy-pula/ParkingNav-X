@@ -28,31 +28,46 @@ useEffect(() => {
   const loadScenarios = async () => {
     try {
       setScenarioError('')
-
       const res = await api.getScenarios()
       const availableScenarios = res.data.scenarios ?? []
-
       setScenarios(availableScenarios)
-
       if (availableScenarios.length > 0) {
         setSelectedScenario(current =>
-          availableScenarios.includes(current)
-            ? current
-            : availableScenarios[0]
+          availableScenarios.includes(current) ? current : availableScenarios[0]
         )
       } else {
         setScenarioError('The API returned no scenarios.')
       }
     } catch (error) {
-      setScenarioError(
-        error.response?.data?.detail ||
-        error.message ||
-        'Failed to load scenarios.'
-      )
+      setScenarioError(error.response?.data?.detail || error.message || 'Failed to load scenarios.')
     }
   }
 
+  const loadExistingResults = async () => {
+    try {
+      const sumRes = await api.getExperimentSummary()
+      const summary = sumRes.data
+      if (!summary || Object.keys(summary).length === 0) return
+      setStatSummary(summary)
+      // Reconstruct per-scenario/strategy mean values for the chart
+      const reconstructed = {}
+      Object.values(summary).forEach(item => {
+        if (!item.scenario || !item.strategy) return
+        if (!reconstructed[item.scenario]) reconstructed[item.scenario] = {}
+        const means = {}
+        Object.entries(item.metrics || {}).forEach(([metric, stats]) => {
+          means[metric] = stats.mean ?? null
+        })
+        reconstructed[item.scenario][item.strategy] = means
+      })
+      if (Object.keys(reconstructed).length > 0) {
+        setResults(reconstructed)
+      }
+    } catch { /* silent — existing results are optional */ }
+  }
+
   loadScenarios()
+  loadExistingResults()
 }, [])
 
   const runExperiments = async () => {

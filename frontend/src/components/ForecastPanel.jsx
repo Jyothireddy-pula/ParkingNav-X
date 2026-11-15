@@ -271,7 +271,9 @@ export default function ForecastPanel() {
           {/* Network KPI row */}
           {(() => {
             const lm = risks.lot_metrics ?? {}
-            const fills = Object.values(lm).map(m => m.fill_forecast ?? 0)
+            const fills = Object.keys(lm).length > 0
+              ? Object.values(lm).map(m => m.fill_forecast ?? 0)
+              : Object.values(risks.predicted_fill_rates ?? {})
             const avgFill = fills.length ? fills.reduce((a,b)=>a+b,0)/fills.length : 0
             const rising = Object.values(lm).filter(m => m.trend === 'rising').length
             const netPct = Math.round((risks.network_risk?.score ?? 0) * 100)
