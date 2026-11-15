@@ -82,41 +82,35 @@ useEffect(() => {
 }, [])
 
   const runExperiments = async () => {
-  if (scenarios.length === 0) {
-    setProgress(['No scenarios are available to run.'])
-    return
-  }
-
   setLoading(true)
-  setProgress([])
+  setProgress(['Loading stored experiment results...'])
   setResults({})
 
-  const newResults = {}
-
   try {
-    for (const scenario of scenarios) {
-      try {
-        const res = await api.compareStrategies(scenario)
-        const comparison = res.data?.comparison
-
-        if (!comparison) {
-          throw new Error('No comparison data returned')
-        }
-
-        newResults[scenario] = comparison
-        setResults({ ...newResults })
-        setProgress(p => [...p, `✓ ${scenario}`])
-      } catch (error) {
-        setProgress(p => [
-          ...p,
-          `✗ ${scenario}: ${
-            error.response?.data?.detail ||
-            error.message ||
-            'Request failed'
-          }`,
-        ])
-      }
+    const sumRes = await api.getExperimentSummary()
+    const summary = sumRes.data
+    if (!summary || Object.keys(summary).length === 0) {
+      setProgress(['No stored results found. Run experiments via the API first.'])
+      return
     }
+    const reconstructed = {}
+    Object.values(summary).forEach(item => {
+      if (!item.scenario || !item.strategy) return
+      if (!reconstructed[item.scenario]) reconstructed[item.scenario] = {}
+      const means = {}
+      Object.entries(item.metrics || {}).forEach(([metric, stats]) => {
+        means[metric] = stats.mean ?? null
+      })
+      reconstructed[item.scenario][item.strategy] = means
+    })
+    const loaded = Object.keys(reconstructed)
+    setResults(reconstructed)
+    setSelectedScenario(current =>
+      reconstructed[current] ? current : loaded[0]
+    )
+    setProgress(loaded.map(s => `✓ ${s}`))
+  } catch (error) {
+    setProgress([`Error: ${error.response?.data?.detail || error.message || 'Failed to load results'}`])
   } finally {
     setLoading(false)
   }
@@ -181,7 +175,7 @@ useEffect(() => {
           disabled={loading}
           className="px-4 py-2 bg-vitap-blue text-white rounded-md text-sm font-medium hover:bg-blue-800 disabled:opacity-50"
         >
-          {loading ? '⏳ Running Experiments...' : '🔬 Run All Experiments'}
+          {loading ? '⏳ Loading Results...' : '🔬 Load Experiment Results'}
         </button>
       </div>
 
@@ -189,7 +183,7 @@ useEffect(() => {
       {progress.length > 0 && (
         <div className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono space-y-0.5 max-h-32 overflow-y-auto">
           {progress.map((line, i) => <div key={i}>{line}</div>)}
-          {loading && <div className="animate-pulse">Running...</div>}
+          {loading && <div className="animate-pulse">Loading...</div>}
         </div>
       )}
 
