@@ -27,8 +27,14 @@ def normalize_timestamp(ts: str) -> str:
 
 
 def lot_capacities(conn) -> Dict[str, int]:
-    return {r[0]: r[1] for r in conn.execute(
-        "SELECT parking_lot_id, usable_capacity FROM parking_lots WHERE campus_id='vitap'")}
+    rows = conn.execute(
+        "SELECT parking_lot_id, usable_capacity FROM parking_lots WHERE campus_id='vitap'"
+    ).fetchall()
+    return {
+        (r["parking_lot_id"] if isinstance(r, dict) else r[0]):
+        (r["usable_capacity"] if isinstance(r, dict) else r[1])
+        for r in rows
+    }
 
 
 def record_observations(conn, rows: Iterable[dict], default_source: str = "sensor") -> Dict:
@@ -68,14 +74,18 @@ def real_demand_frame(conn):
     """Real observations as a 15-minute-grid DataFrame in the training-data layout
     (timestamp [campus-local], lot_id, occupied, capacity, fill_rate). Gaps stay gaps — nothing is invented."""
     import pandas as pd
-    marks = ",".join("?" * len(REAL_SOURCES))
+    marks = ",".join(["?"] * len(REAL_SOURCES))
     rows = conn.execute(
         f"SELECT lot_id, recorded_at, fill_rate FROM lot_occupancy_history WHERE source IN ({marks})",
         REAL_SOURCES).fetchall()
     if not rows:
         return pd.DataFrame()
     caps = lot_capacities(conn)
-    df = pd.DataFrame([tuple(r) for r in rows], columns=["lot_id", "timestamp", "fill_rate"])
+    if rows and isinstance(rows[0], dict):
+        records = [(r["lot_id"], r["recorded_at"], r["fill_rate"]) for r in rows]
+    else:
+        records = [tuple(r) for r in rows]
+    df = pd.DataFrame(records, columns=["lot_id", "timestamp", "fill_rate"])
     df["timestamp"] = (pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
                        + CAMPUS_UTC_OFFSET).dt.floor("15min")
     df = df.groupby(["lot_id", "timestamp"], as_index=False)["fill_rate"].mean()
