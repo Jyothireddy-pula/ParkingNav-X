@@ -20,8 +20,6 @@ arrival_rate_profile:
 event_conditions:
   ad_hoc: true
   demand_multiplier: 1.5
-  affected_zones:
-    - sports_zone
   start_minute: 120
   end_minute: 600
 availability_overrides:
