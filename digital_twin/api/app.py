@@ -8,7 +8,6 @@ import math
 import os
 import re
 import statistics
-import threading
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -27,8 +26,7 @@ from digital_twin.simulation.scenario import ScenarioLoader
 from digital_twin.simulation.strategy import FirstAvailableStrategy, NearestAvailableStrategy
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-# Render persistent disk at /data; env var PARKINGNAV_DB_PATH overrides for any deployment
-DB_PATH = Path(os.environ.get("PARKINGNAV_DB_PATH", ROOT / "digital_twin.db"))
+DB_PATH = ROOT / "digital_twin.db"
 CAMPUS_YAML = ROOT / "configs" / "campus" / "vitap.yaml"
 SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 RESULTS_FILE = ROOT / "experiments" / "results" / "all_results.json"
@@ -67,34 +65,6 @@ _graph_service = CampusGraphService()
 
 # ── Cached DB connection (migrations run once at startup, not per-request) ────
 _db_conn = None
-# The single shared sqlite connection is not safe for concurrent cursor use
-# (commits in one thread invalidate another thread's open cursor -> "no more
-# rows available"). Simulation runs and startup retraining hold this lock.
-_sim_lock = threading.RLock()
-
-
-def sim_conn():
-    """Private in-memory snapshot of the live DB for one simulation run, so
-    runs never share cursors/commits with other requests."""
-    import sqlite3
-    live = get_conn()
-    private = sqlite3.connect(":memory:", check_same_thread=False)
-    private.row_factory = sqlite3.Row
-    with _sim_lock:
-        live.commit()
-        live.backup(private)
-    private.execute("PRAGMA foreign_keys = ON")
-    return private
-
-
-def _run_sim(scenario, strategy, run_id):
-    """Run one simulation on a private DB snapshot; only one runs at a time."""
-    with _sim_lock:
-        sconn = sim_conn()
-        try:
-            return SimulationEngine().run(scenario, strategy, sconn, run_id=run_id)
-        finally:
-            sconn.close()
 
 
 def get_conn():
@@ -108,54 +78,12 @@ def get_conn():
 
 @app.on_event("startup")
 def _startup_prewarm():
-    """Load the DB + campus data eagerly, then pre-warm the prediction engine."""
-    with _sim_lock:
-        get_conn()
+    """Pre-warm the prediction engine so the first API request is not slow."""
     try:
         from digital_twin.prediction.engine import retrain
-        with _sim_lock:
-            retrain(get_conn())
+        retrain(get_conn())  # fits all models once (real data where available); cached as singleton
     except Exception:
-        pass
-    # Seed realistic current-time occupancy so forecasts show live-adjusted data
-    try:
-        _seed_live_observations()
-    except Exception:
-        pass
-
-
-def _seed_live_observations():
-    """Insert time-of-day occupancy readings so the prediction engine has live data to adjust on."""
-    import datetime, random
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT parking_lot_id, usable_capacity FROM parking_lots WHERE campus_id='vitap'"
-    ).fetchall()
-    if not rows:
-        return
-    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
-    hour = now.hour
-    # Realistic fill patterns by hour (fraction of capacity)
-    hour_pattern = {
-        **{h: 0.10 for h in range(0, 7)},   # night
-        7: 0.25, 8: 0.55, 9: 0.72, 10: 0.78,
-        11: 0.80, 12: 0.70, 13: 0.65, 14: 0.75,
-        15: 0.78, 16: 0.72, 17: 0.60, 18: 0.45,
-        19: 0.30, 20: 0.20, 21: 0.15, 22: 0.12, 23: 0.10,
-    }
-    base_fill = hour_pattern.get(hour, 0.5)
-    rng = random.Random(now.hour * 100 + now.minute // 15)
-    ts = now.strftime("%Y-%m-%dT%H:%M:%S")
-    for row in rows:
-        lot_id, capacity = row["parking_lot_id"], row["usable_capacity"]
-        fill = max(0.0, min(1.0, base_fill + rng.uniform(-0.08, 0.08)))
-        occupied = int(fill * capacity)
-        conn.execute(
-            "INSERT INTO lot_occupancy_history (lot_id, occupied_spaces, fill_rate, source, recorded_at) "
-            "VALUES (?, ?, ?, 'sensor', ?)",
-            (lot_id, occupied, fill, ts),
-        )
-    conn.commit()
+        pass  # non-fatal — predictions will fall back to MovingAverage
 
 
 def _build_graph(conn):
@@ -342,86 +270,6 @@ def get_campus():
     }
 
 
-@app.get("/data/summary", tags=["Campus"])
-def get_data_summary():
-    """Return dataset record counts, quality stats, and source labels for the Record Counts tab."""
-    conn = get_conn()
-    from digital_twin.prediction.features import DATA_PATH
-    import os
-
-    def safe(fn):
-        try: return fn()
-        except Exception: return None
-
-    # Occupancy history
-    obs_total = safe(lambda: conn.execute("SELECT COUNT(*) FROM lot_occupancy_history WHERE campus_id='vitap'").fetchone()[0]) or 0
-    obs_real   = safe(lambda: conn.execute("SELECT COUNT(*) FROM lot_occupancy_history WHERE campus_id='vitap' AND source NOT IN ('simulation','synthetic')").fetchone()[0]) or 0
-    obs_synth  = safe(lambda: conn.execute("SELECT COUNT(*) FROM lot_occupancy_history WHERE campus_id='vitap' AND source IN ('simulation','synthetic')").fetchone()[0]) or 0
-    obs_range  = safe(lambda: conn.execute("SELECT MIN(recorded_at), MAX(recorded_at) FROM lot_occupancy_history WHERE campus_id='vitap'").fetchone()) or (None, None)
-    obs_nulls  = safe(lambda: conn.execute("SELECT COUNT(*) FROM lot_occupancy_history WHERE campus_id='vitap' AND occupied_spaces IS NULL").fetchone()[0]) or 0
-
-    # Campus config
-    lots   = safe(lambda: conn.execute("SELECT COUNT(*) FROM parking_lots WHERE campus_id='vitap'").fetchone()[0]) or 0
-    gates  = safe(lambda: conn.execute("SELECT COUNT(*) FROM gates WHERE campus_id='vitap'").fetchone()[0]) or 0
-    roads  = safe(lambda: conn.execute("SELECT COUNT(*) FROM roads WHERE campus_id='vitap'").fetchone()[0]) or 0
-    dests  = safe(lambda: conn.execute("SELECT COUNT(*) FROM destinations WHERE campus_id='vitap'").fetchone()[0]) or 0
-
-    # Simulation runs
-    sim_runs = safe(lambda: conn.execute("SELECT COUNT(DISTINCT run_id) FROM simulation_metrics WHERE campus_id='vitap'").fetchone()[0]) or 0
-
-    # Synthetic training data
-    csv_rows = 0
-    csv_mtime = None
-    if DATA_PATH.exists():
-        try:
-            import pandas as pd
-            csv_rows = len(pd.read_csv(DATA_PATH, usecols=[0]))
-            csv_mtime = os.path.getmtime(DATA_PATH)
-            import datetime
-            csv_mtime = datetime.datetime.fromtimestamp(csv_mtime).isoformat(timespec="minutes")
-        except Exception:
-            pass
-
-    # Experiment results
-    exp_runs = 0
-    if RESULTS_FILE.exists():
-        try:
-            import json as _json
-            exp_runs = len(_json.loads(RESULTS_FILE.read_text()))
-        except Exception:
-            pass
-
-    return {
-        "occupancy_history": {
-            "total": obs_total, "real_manual": obs_real, "simulated_synthetic": obs_synth,
-            "null_values": obs_nulls,
-            "date_range": {"from": obs_range[0], "to": obs_range[1]},
-            "source": "lot_occupancy_history table",
-        },
-        "campus_config": {
-            "parking_lots": lots, "gates": gates, "roads": roads, "destinations": dests,
-            "source": "SQLite campus config (OSM-calibrated)", "generation": "vitap.yaml + OSM extract",
-        },
-        "synthetic_training_data": {
-            "rows": csv_rows, "last_generated": csv_mtime,
-            "source": "Gaussian bell-curve model, VIT-AP-calibrated",
-            "generation": "digital_twin/prediction/features.py · _generate_synthetic_data()",
-            "note": "90 days × 5 lots × 96 slots/day. Distinct lot-specific daily patterns.",
-        },
-        "simulation_runs": {
-            "total": sim_runs, "source": "simulation_metrics table",
-        },
-        "experiment_results": {
-            "total_runs": exp_runs, "source": str(RESULTS_FILE.name),
-        },
-        "data_integrity": {
-            "occupied_plus_available_equals_capacity": True,
-            "synthetic_clearly_labelled": True,
-            "real_data_separated": True,
-        },
-    }
-
-
 @app.post("/operator/override", tags=["Operator"])
 def operator_override(req: OperatorOverrideRequest):
     """
@@ -535,7 +383,7 @@ def simulate(req: SimulateRequest):
     scenario = ScenarioLoader.load(scenario_file)
     engine = SimulationEngine()
     run_id = f"api-{uuid.uuid4().hex[:8]}"
-    result = _run_sim(scenario, strategy, run_id)
+    result = engine.run(scenario, strategy, conn, run_id=run_id)
 
     # Populate lot_occupancy_history so the risk engine sees real data
     if result.timesteps:
@@ -547,8 +395,8 @@ def simulate(req: SimulateRequest):
             fill_rate = round(occupied / cap, 4)
             try:
                 conn.execute(
-                    "INSERT INTO lot_occupancy_history (campus_id, lot_id, occupied_spaces, fill_rate, source) "
-                    "VALUES ('vitap', ?, ?, ?, 'simulation')",
+                    "INSERT INTO lot_occupancy_history (lot_id, occupied_spaces, fill_rate, source) "
+                    "VALUES (?, ?, ?, 'simulation')",
                     (lot_id, int(occupied), fill_rate),
                 )
             except Exception:
@@ -576,29 +424,23 @@ def simulate(req: SimulateRequest):
     }
 
 
-def _compare_scenario(scenario: str) -> dict:
+@app.get("/compare/{scenario}", tags=["Simulation"])
+def compare_strategies(scenario: str):
+    """Run all 4 strategies on a scenario and return side-by-side comparison."""
     scenario_file = SCENARIO_DIR / f"{scenario}.yaml"
     if not scenario_file.exists():
         available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
         raise HTTPException(status_code=404, detail=f"Scenario '{scenario}' not found. Available: {available}")
 
-    # Build a fresh strategy instance per run so that internal state (forecast cache,
-    # ablation flags set by update_policy) never leaks from one scenario run to the next.
-    _STRATEGY_FACTORIES = {
-        "B1": FirstAvailableStrategy,
-        "B2": NearestAvailableStrategy,
-        "B3": PredictionOnlyStrategy,
-        "P":  ParkingNavXFullStrategy,
-    }
-
+    conn = get_conn()
     results = {}
     for code in ["B1", "B2", "B3", "P"]:
+        strategy = STRATEGIES[code]
         sc = ScenarioLoader.load(scenario_file)
+        engine = SimulationEngine()
         run_id = f"api-cmp-{uuid.uuid4().hex[:6]}"
-        strategy = _STRATEGY_FACTORIES[code]()
-        strategy.label = code
         try:
-            result = _run_sim(sc, strategy, run_id)
+            result = engine.run(sc, strategy, conn, run_id=run_id)
         except Exception as e:  # surface the real cause to the UI instead of a bare 500
             raise HTTPException(
                 status_code=500,
@@ -611,56 +453,9 @@ def _compare_scenario(scenario: str) -> dict:
             "avg_wait_time_min":   round(m["avg_wait_time_min"], 2)   if m.get("avg_wait_time_min")   is not None else None,
             "avg_gate_queue":      round(m["avg_gate_queue"], 2)      if m.get("avg_gate_queue")      is not None else None,
             "peak_gate_queue":     m.get("max_gate_queue"),
+            "successful_park_rate": round(m["successful_park_rate"], 4) if m.get("successful_park_rate") is not None else None,
         }
     return {"scenario": scenario, "comparison": results}
-
-
-@app.get("/compare/{scenario}", tags=["Simulation"])
-def compare_strategies(scenario: str):
-    """Run all 4 strategies on a scenario and return side-by-side comparison (blocking)."""
-    return _compare_scenario(scenario)
-
-
-# Background compare jobs: a full comparison takes minutes on small hosts, longer
-# than a proxy's request timeout, so the UI starts a job and polls for it.
-_compare_jobs = {}          # scenario -> {"status", "result", "error"}
-_compare_jobs_lock = threading.Lock()
-
-
-def _compare_worker(scenario: str):
-    try:
-        res = _compare_scenario(scenario)
-        job = {"status": "done", "result": res, "error": None}
-    except HTTPException as e:
-        job = {"status": "error", "result": None, "error": str(e.detail)}
-    except Exception as e:
-        job = {"status": "error", "result": None, "error": f"{type(e).__name__}: {e}"}
-    with _compare_jobs_lock:
-        _compare_jobs[scenario] = job
-
-
-@app.post("/compare/{scenario}/start", tags=["Simulation"])
-def start_compare(scenario: str):
-    """Start (or reuse) a background comparison; poll GET /compare/{scenario}/status."""
-    if not (SCENARIO_DIR / f"{scenario}.yaml").exists():
-        available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
-        raise HTTPException(status_code=404, detail=f"Scenario '{scenario}' not found. Available: {available}")
-    with _compare_jobs_lock:
-        job = _compare_jobs.get(scenario)
-        if job is None or job["status"] == "error":
-            _compare_jobs[scenario] = {"status": "running", "result": None, "error": None}
-            threading.Thread(target=_compare_worker, args=(scenario,), daemon=True).start()
-        return {"scenario": scenario, "status": _compare_jobs[scenario]["status"]}
-
-
-@app.get("/compare/{scenario}/status", tags=["Simulation"])
-def compare_status(scenario: str):
-    with _compare_jobs_lock:
-        job = _compare_jobs.get(scenario)
-    if job is None:
-        raise HTTPException(status_code=404, detail="No comparison started for this scenario")
-    return {"scenario": scenario, "status": job["status"], "error": job["error"],
-            **(job["result"] or {})}
 
 
 @app.get("/events", tags=["Campus"])
@@ -995,6 +790,56 @@ def _data_source_label(prefix: str) -> str:
     return f"[SYNTHETIC] {prefix} synthetic demand data" if d["mode"] == "synthetic" else f"[{d['mode'].upper()}] {prefix} {d['label']}"
 
 
+@app.get("/predict/model-metrics", tags=["Prediction"])
+def get_model_metrics():
+    """Return XGBoost evaluation metrics (MAE, R², 90% CI coverage) from prediction_metrics.json."""
+    import json as _json
+    metrics_file = ROOT / "experiments" / "results" / "prediction_metrics.json"
+    if metrics_file.exists():
+        try:
+            data = _json.loads(metrics_file.read_text())
+            lots = data.get("lots", [])
+            xgb_lots = [l["xgboost"] for l in lots if "xgboost" in l]
+            if xgb_lots:
+                avg_mae = round(sum(l["mae"] for l in xgb_lots) / len(xgb_lots), 4)
+                avg_r2  = round(sum(l["r2"]  for l in xgb_lots) / len(xgb_lots), 4)
+                avg_cov = round(sum(l.get("coverage_90", 0) for l in xgb_lots) / len(xgb_lots), 4)
+                return {
+                    "horizon_minutes": data.get("horizon_minutes", 15),
+                    "summary": {"mae": avg_mae, "r2": avg_r2, "coverage_90": avg_cov,
+                                "n_lots": len(xgb_lots)},
+                    "lots": lots,
+                    "model": "XGBoost + conformal prediction",
+                    "data_source": "experiments/results/prediction_metrics.json",
+                }
+        except Exception:
+            pass
+    return {"summary": {}, "lots": [], "model": "XGBoost", "note": "metrics not yet computed"}
+
+
+@app.get("/data/summary", tags=["Info"])
+def get_data_summary():
+    """Return record counts for all data tables (observations, occupancy snapshots, routes, events)."""
+    conn = get_conn()
+    try:
+        tables = {
+            "parking_observations": "SELECT COUNT(*) FROM parking_observations",
+            "occupancy_snapshots": "SELECT COUNT(*) FROM occupancy_snapshots",
+            "route_cache": "SELECT COUNT(*) FROM route_cache",
+            "campus_events": "SELECT COUNT(*) FROM campus_events",
+        }
+        counts: dict = {}
+        for name, sql in tables.items():
+            try:
+                row = conn.execute(sql).fetchone()
+                counts[name] = row[0] if row else 0
+            except Exception:
+                counts[name] = None
+        return {"status": "ok", "record_counts": counts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Data summary failed: {e}")
+
+
 @app.post("/predict/retrain", tags=["Prediction"], dependencies=[Depends(require_write_key)])
 def retrain_predictor():
     """Refit the forecast models on current data: real recorded occupancy for every lot with at least a week
@@ -1066,42 +911,6 @@ def predict_all_lots(horizon_minutes: int = 15, as_of: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
-@app.get("/predict/model-metrics", tags=["Prediction"])
-def get_model_metrics():
-    """Return saved MAE/RMSE/R² metrics for the XGBoost and baseline predictors.
-    Runs evaluation on first call if the metrics file does not exist yet."""
-    import json
-    from pathlib import Path
-    metrics_path = Path(__file__).resolve().parent.parent / "experiments" / "results" / "prediction_metrics.json"
-    if not metrics_path.exists():
-        try:
-            from digital_twin.prediction.evaluate import run_evaluation
-            run_evaluation()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Could not compute model metrics: {e}")
-    if not metrics_path.exists():
-        raise HTTPException(status_code=404, detail="Model metrics not available yet.")
-    with open(metrics_path) as f:
-        data = json.load(f)
-    # Aggregate across lots: mean MAE, RMSE, R² for XGBoost
-    lots = data.get("lots", [])
-    xgb_maes, xgb_rmses, xgb_r2s, xgb_covs = [], [], [], []
-    for lot in lots:
-        xgb = lot.get("xgboost", {})
-        if xgb.get("mae") is not None: xgb_maes.append(xgb["mae"])
-        if xgb.get("rmse") is not None: xgb_rmses.append(xgb["rmse"])
-        if xgb.get("r2") is not None: xgb_r2s.append(xgb["r2"])
-        if xgb.get("coverage_90") is not None: xgb_covs.append(xgb["coverage_90"])
-    summary = {
-        "mae": round(sum(xgb_maes)/len(xgb_maes), 4) if xgb_maes else None,
-        "rmse": round(sum(xgb_rmses)/len(xgb_rmses), 4) if xgb_rmses else None,
-        "r2": round(sum(xgb_r2s)/len(xgb_r2s), 4) if xgb_r2s else None,
-        "coverage_90": round(sum(xgb_covs)/len(xgb_covs), 4) if xgb_covs else None,
-        "n_lots": len(xgb_maes),
-    }
-    return {"model": "XGBoost + conformal prediction", "horizon_minutes": data.get("horizon_minutes", 15), "summary": summary, "lots": lots}
-
-
 # ── Risk endpoints ─────────────────────────────────────────────────────────────
 
 @app.get("/risk/current", tags=["Risk"])
@@ -1109,10 +918,8 @@ def get_current_risk():
     """Return current risk scores across all risk dimensions."""
     try:
         from digital_twin.risk.engine import RiskEngine
-        from digital_twin.prediction.engine import forecast_context
         conn = get_conn()
-        predictor, _basis = forecast_context(conn)
-        re = RiskEngine(conn, predictor=predictor)
+        re = RiskEngine(conn)
         scores = re.compute_all()
         return {"status": "ok", "risks": scores}
     except Exception as e:
@@ -1305,7 +1112,7 @@ def run_experiment(req: ExperimentRunRequest):
             t0 = _time.time()
             try:
                 engine = SimulationEngine()
-                result = _run_sim(sc, strategy, run_id)
+                result = engine.run(sc, strategy, conn, run_id=run_id)
                 m = result.metrics
                 rec = {
                     "run_id": run_id, "scenario": req.scenario,
@@ -1325,18 +1132,13 @@ def run_experiment(req: ExperimentRunRequest):
                        "error": str(e), "status": "error"}
             new_results.append(rec)
 
-    # Persist — deduplicate by (scenario, strategy, seed): keep the latest run for
-    # each combination so re-running experiments always replaces stale results.
+    # Persist
     RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = _load_results()
-    # Index existing by natural key; a unique run_id never matches a new one
-    by_key = {(r["scenario"], r["strategy"], r.get("seed", 0)): r for r in existing}
+    by_id = {r["run_id"]: r for r in existing}
     for r in new_results:
-        by_key[(r["scenario"], r["strategy"], r.get("seed", 0))] = r
-    RESULTS_FILE.write_text(json.dumps(list(by_key.values()), indent=2))
-    # Invalidate pre-computed summary so next /experiments/summary reflects new results
-    if SUMMARY_FILE.exists():
-        SUMMARY_FILE.unlink(missing_ok=True)
+        by_id[r["run_id"]] = r
+    RESULTS_FILE.write_text(json.dumps(list(by_id.values()), indent=2))
 
     ok = [r for r in new_results if r.get("status") == "ok"]
     err = [r for r in new_results if r.get("status") == "error"]
