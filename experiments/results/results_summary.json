@@ -620,7 +620,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E5_noise_0|B2": {
@@ -652,7 +657,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E5_noise_0|B3": {
@@ -684,7 +694,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E5_noise_0|P": {
@@ -753,7 +768,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E6_ablation|B2": {
@@ -785,7 +805,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E6_ablation|B3": {
@@ -817,7 +842,12 @@
         "ci_95": 0.0,
         "n": 2
       },
-      "successful_park_rate": null
+      "successful_park_rate": {
+        "mean": null,
+        "std": null,
+        "ci_95": null,
+        "n": 0
+      }
     }
   },
   "E6_ablation|P": {
