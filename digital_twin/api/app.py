@@ -995,33 +995,6 @@ def _data_source_label(prefix: str) -> str:
     return f"[SYNTHETIC] {prefix} synthetic demand data" if d["mode"] == "synthetic" else f"[{d['mode'].upper()}] {prefix} {d['label']}"
 
 
-@app.get("/predict/model-metrics", tags=["Prediction"])
-def get_model_metrics():
-    """Return XGBoost evaluation metrics from prediction_metrics.json (MAE, R², 90% CI coverage)."""
-    import json as _json
-    metrics_file = ROOT / "experiments" / "results" / "prediction_metrics.json"
-    if metrics_file.exists():
-        try:
-            data = _json.loads(metrics_file.read_text())
-            lots = data.get("lots", [])
-            xgb_lots = [l["xgboost"] for l in lots if "xgboost" in l]
-            if xgb_lots:
-                avg_mae = round(sum(l["mae"] for l in xgb_lots) / len(xgb_lots), 4)
-                avg_r2  = round(sum(l["r2"]  for l in xgb_lots) / len(xgb_lots), 4)
-                avg_cov = round(sum(l.get("coverage_90", 0) for l in xgb_lots) / len(xgb_lots), 4)
-                return {
-                    "horizon_minutes": data.get("horizon_minutes", 15),
-                    "summary": {"mae": avg_mae, "r2": avg_r2, "coverage_90": avg_cov,
-                                "n_lots": len(xgb_lots)},
-                    "lots": lots,
-                    "model": "XGBoost + conformal prediction",
-                    "data_source": "experiments/results/prediction_metrics.json",
-                }
-        except Exception:
-            pass
-    return {"summary": {}, "lots": [], "model": "XGBoost", "note": "metrics not yet computed"}
-
-
 @app.post("/predict/retrain", tags=["Prediction"], dependencies=[Depends(require_write_key)])
 def retrain_predictor():
     """Refit the forecast models on current data: real recorded occupancy for every lot with at least a week
