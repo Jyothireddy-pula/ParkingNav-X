@@ -64,26 +64,26 @@ class PredictionOnlyStrategy(AllocationStrategy):
 class ParkingNavXFullStrategy(AllocationStrategy):
     """P — ParkingNav-X full system strategy.
 
-    Combines: prediction-aware lot selection + gate congestion cost +
+    Combines: prediction-aware lot selection + BPR-weighted route cost +
     forecast-driven proactive avoidance + uncertainty hedging.
 
     Scoring (per lot):
-        score = distance_from_vehicle_gate * (1 + effective_fill)
-                + gate_queue_penalty
+        score = route_cost * (1 + effective_fill)
 
-    Distance is always measured from the vehicle's actual entry gate so
-    that lot rankings reflect the route the vehicle will actually travel.
-    Gate congestion penalty adds cost when the vehicle's own gate is
-    backlogged — incentivising agents to prefer uncongested corridors
-    at the lot-choice level rather than hard-rerouting through a different
-    gate (which would require different dispatch logic).
+    route_cost is travel TIME in seconds (use_optimization=True, default) or
+    travel DISTANCE in metres (use_optimization=False, ablation baseline).
+    Using travel time aligns lot scoring with the actual BPR-weighted routing
+    the engine uses, so lots are ranked by what the driver will actually experience.
+
+    Gate queue penalty was previously added here but is constant per vehicle
+    (same entry gate for all lots scored in one call) so it cannot change
+    lot rankings — it was removed.
 
     Ablation flags (set via update_policy's ablation_flags kwarg):
-    - use_prediction: if False, use current occupancy only (no forecast)
-    - use_optimization: if False, skip gate congestion penalty
-    - use_uncertainty: if False, ignore upper conformal interval in scoring
-    - proactive: if False, only avoid lots that are currently ≥ threshold
-                 (reactive), not forecast-full (proactive)
+    - use_prediction:  if False, use current occupancy only (no forecast)
+    - use_optimization: if False, score by distance (metres) not travel time
+    - use_uncertainty:  if False, ignore upper conformal interval in scoring
+    - proactive:        if False, only avoid lots that are currently ≥ threshold
     """
 
     label = "P-ParkingNavX"
@@ -91,7 +91,6 @@ class ParkingNavXFullStrategy(AllocationStrategy):
     # This gives proactive avoidance: P skips a lot at current 65% if forecast says it'll hit 80%.
     FILL_SOFT_THRESHOLD = 0.60   # steepen penalty above 60% predicted fill
     FILL_HARD_THRESHOLD = 0.80   # hard-skip when PREDICTED fill ≥ 80% (B3 uses current fill)
-    GATE_QUEUE_WEIGHT = 50.0
 
     def __init__(self, weight_profile: str = "P1"):
         self._forecast = None
@@ -114,17 +113,13 @@ class ParkingNavXFullStrategy(AllocationStrategy):
             self._weights = _J_WEIGHT_PROFILES.get(weight_profile, self._weights)
 
     def assign(self, vehicle, campus_state):
-        # ── Gate congestion at vehicle's own entry gate ───────────────────────
-        if self._use_optimization:
-            gate_loads = {
-                g_id: g.get("queue_length", 0)
-                for g_id, g in campus_state.gates.items()
-                if g.get("status", "open") == "open"
-            }
-            my_queue = gate_loads.get(vehicle.entry_gate, 0)
-        else:
-            gate_loads = {}
-            my_queue = 0
+        # ── Routing weight: travel time (default) or distance (ablation) ──────
+        # use_optimization=True  → weight_time_seconds: aligns scoring with BPR routing.
+        # use_optimization=False → weight_distance_meters: ablation baseline (how B3 scores).
+        # Previously, use_optimization added a gate-queue penalty that was constant
+        # per vehicle (same entry gate for all lots scored in one call) so it had
+        # zero effect on lot rankings and was removed.
+        routing_weight = "weight_time_seconds" if self._use_optimization else "weight_distance_meters"
 
         # ── Forecast fill rates ───────────────────────────────────────────────
         if self._use_prediction and self._forecast and "lot_fill_rates" in self._forecast:
@@ -151,12 +146,13 @@ class ParkingNavXFullStrategy(AllocationStrategy):
 
             # ── Effective fill for proactive / reactive modes ─────────────────
             if self._proactive and self._use_prediction:
-                # Take the worse of predicted vs current fill so P is never
-                # less cautious than a reactive strategy (guards against the
-                # ML model returning uniform low predictions when lots vary).
+                # Use max(predicted, current * 0.9) so P can benefit from
+                # improving lots (departures reducing fill) while remaining
+                # conservative. The 0.9 floor prevents chasing lots that are
+                # genuinely full but transiently mispredicted as improving.
                 predicted_fill = max(
                     predicted_fills.get(lot_id, current_fill),
-                    current_fill,
+                    current_fill * 0.9,
                 )
                 # Widen with upper conformal interval for SCORING only.
                 # The hard-skip uses predicted_fill (not the widened value) so
@@ -176,16 +172,17 @@ class ParkingNavXFullStrategy(AllocationStrategy):
             if predicted_fill >= self.FILL_HARD_THRESHOLD:
                 continue
 
-            # ── Distance from vehicle's actual entry gate ─────────────────────
-            distance = nx.shortest_path_length(
+            # ── Route cost from vehicle's actual entry gate ───────────────────
+            # Scored by travel time (seconds) so lot ranking reflects actual
+            # BPR-weighted route quality, not just physical proximity.
+            route_cost = nx.shortest_path_length(
                 campus_state.graph, vehicle.entry_gate, lot_id,
-                weight="weight_distance_meters"
+                weight=routing_weight
             )
 
-            # ── Composite score: same unit as B3 (metres × fill factor) + gate penalty ──
-            # Identical formula to B3 but using PREDICTED fill (not current).
-            # When fill is rising (lot filling up), effective_fill > current → stronger avoidance.
-            # When fill is falling (lot emptying), effective_fill < current → picks lots B3 avoids.
+            # ── Composite score: route_cost × fill_multiplier ─────────────────
+            # Identical structure to B3 but using PREDICTED fill (not current)
+            # and BPR travel time (not raw distance) as the base cost.
             # Above FILL_SOFT_THRESHOLD: multiplier steepens to penalise congested routing.
             if effective_fill <= self.FILL_SOFT_THRESHOLD:
                 fill_multiplier = 1.0 + effective_fill
@@ -194,11 +191,7 @@ class ParkingNavXFullStrategy(AllocationStrategy):
                     (effective_fill - self.FILL_SOFT_THRESHOLD) * 3.0
                 )
 
-            # Gate queue penalty in metres-equivalent (zero when use_optimization=False)
-            queue_penalty = (my_queue * self.GATE_QUEUE_WEIGHT
-                             if self._use_optimization else 0.0)
-
-            score = distance * fill_multiplier + queue_penalty
+            score = route_cost * fill_multiplier
 
             if score < best_score:
                 best_lot, best_score = lot_id, score
@@ -210,11 +203,10 @@ class ParkingNavXFullStrategy(AllocationStrategy):
                     continue
                 if not nx.has_path(campus_state.graph, vehicle.entry_gate, lot_id):
                     continue
-                distance = nx.shortest_path_length(
-                    campus_state.graph, vehicle.entry_gate, lot_id,
-                    weight="weight_distance_meters"
+                route_cost = nx.shortest_path_length(
+                    campus_state.graph, vehicle.entry_gate, lot_id, weight=routing_weight
                 )
-                if best_lot is None or distance < best_score:
-                    best_lot, best_score = lot_id, distance
+                if best_lot is None or route_cost < best_score:
+                    best_lot, best_score = lot_id, route_cost
 
         return AssignmentResult(parking_lot_id=best_lot, gate_id=vehicle.entry_gate)

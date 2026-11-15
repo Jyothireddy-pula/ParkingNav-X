@@ -391,8 +391,16 @@ class PredictionEngine:
         Pass `at` (a naive datetime in campus local time) so the XGBoost / HA model
         evaluates the feature row matching the simulated wall-clock time instead of
         always using the last row of the training data.
+
+        Live fills from update_current() calls are passed to predictions so the
+        forecast adjusts for observed deviations from the typical occupancy pattern.
+        Without this, the prediction ignores real-time campus state entirely.
         """
-        preds = self.predict_all(horizon_minutes, at=at)
+        preds = {
+            lid: self.predict(lid, horizon_minutes, at=at,
+                              live_fill=self._current_fills.get(lid))
+            for lid in LOT_IDS
+        }
         return {
             "lot_fill_rates": {lid: preds[lid]["fill_rate"] for lid in LOT_IDS},
             # Upper confidence bound — used by use_uncertainty=True path in P strategy
