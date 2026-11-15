@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from digital_twin.config_loader import load_campus_config
-from digital_twin.db import apply_migrations, get_connection
+from digital_twin.db import apply_migrations, get_connection, db_backend
 from digital_twin.graph_service import CampusGraphService
 from digital_twin.simulation.demo_strategies import ParkingNavXFullStrategy, PredictionOnlyStrategy
 from digital_twin.simulation.engine import SimulationEngine
@@ -191,7 +191,12 @@ def health():
         db_ok = True
     except Exception:
         db_ok = False
-    return {"status": "ok" if db_ok else "degraded", "db": db_ok, "version": "2.0.0"}
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "db": db_ok,
+        "db_backend": db_backend(),
+        "version": "2.0.0",
+    }
 
 
 @app.get("/", tags=["Info"])
@@ -817,25 +822,127 @@ def get_model_metrics():
     return {"summary": {}, "lots": [], "model": "XGBoost", "note": "metrics not yet computed"}
 
 
+def _count(conn, sql: str) -> int:
+    """Run a COUNT query and return an int (0 on error)."""
+    try:
+        row = conn.execute(sql).fetchone()
+        if row is None:
+            return 0
+        return int(row["n"] if isinstance(row, dict) else row[0])
+    except Exception:
+        return 0
+
+
 @app.get("/data/summary", tags=["Info"])
 def get_data_summary():
-    """Return record counts for all data tables (observations, occupancy snapshots, routes, events)."""
+    """Return structured dataset summary for the dashboard Dataset Overview tab."""
     conn = get_conn()
     try:
-        tables = {
-            "parking_observations": "SELECT COUNT(*) FROM parking_observations",
-            "occupancy_snapshots": "SELECT COUNT(*) FROM occupancy_snapshots",
-            "route_cache": "SELECT COUNT(*) FROM route_cache",
-            "campus_events": "SELECT COUNT(*) FROM campus_events",
+        # ── Occupancy history (lot_occupancy_history table) ────────────────────
+        total_obs    = _count(conn, "SELECT COUNT(*) AS n FROM lot_occupancy_history")
+        real_manual  = _count(conn, "SELECT COUNT(*) AS n FROM lot_occupancy_history WHERE source IN ('sensor','manual')")
+        sim_synth    = _count(conn, "SELECT COUNT(*) AS n FROM lot_occupancy_history WHERE source IN ('simulation','synthetic')")
+        null_vals    = _count(conn, "SELECT COUNT(*) AS n FROM lot_occupancy_history WHERE occupied_spaces IS NULL")
+        try:
+            date_row = conn.execute(
+                "SELECT MIN(recorded_at) AS mn, MAX(recorded_at) AS mx FROM lot_occupancy_history"
+            ).fetchone()
+            date_range = {
+                "from": (date_row["mn"] if isinstance(date_row, dict) else date_row[0]) if date_row else None,
+                "to":   (date_row["mx"] if isinstance(date_row, dict) else date_row[1]) if date_row else None,
+            }
+        except Exception:
+            date_range = {"from": None, "to": None}
+
+        # ── Campus config ──────────────────────────────────────────────────────
+        n_lots  = _count(conn, "SELECT COUNT(*) AS n FROM parking_lots WHERE campus_id='vitap'")
+        n_gates = _count(conn, "SELECT COUNT(*) AS n FROM gates WHERE campus_id='vitap'")
+        n_roads = _count(conn, "SELECT COUNT(*) AS n FROM roads WHERE campus_id='vitap'")
+        n_dests = _count(conn, "SELECT COUNT(*) AS n FROM destinations WHERE campus_id='vitap'")
+
+        # ── Synthetic training data size ───────────────────────────────────────
+        syn_rows = 0
+        syn_last = None
+        try:
+            from digital_twin.prediction.engine import data_description
+            dd = data_description()
+            syn_rows = dd.get("n_rows", 0)
+            syn_last = dd.get("last_generated")
+            syn_mode = dd.get("mode", "synthetic")
+            syn_label = dd.get("label", "synthetic demand profile")
+        except Exception:
+            syn_mode = "synthetic"
+            syn_label = "synthetic demand profile"
+
+        # ── Simulation runs ────────────────────────────────────────────────────
+        n_sim_runs = _count(conn, "SELECT COUNT(*) AS n FROM simulation_runs")
+
+        # ── Experiment results (from JSON files, not DB) ───────────────────────
+        exp_total = 0
+        try:
+            if SUMMARY_FILE.exists():
+                s = json.loads(SUMMARY_FILE.read_text())
+                # results_summary.json has keys like "E1_normal_day|B1" -> {n_runs, ...}
+                exp_total = sum(v.get("n_runs", 0) for v in s.values() if isinstance(v, dict))
+        except Exception:
+            pass
+
+        # ── New table counts (migration 0009) ──────────────────────────────────
+        raw_obs_count  = _count(conn, "SELECT COUNT(*) AS n FROM parking_observations")
+        occ_snap_count = _count(conn, "SELECT COUNT(*) AS n FROM occupancy_snapshots")
+        route_count    = _count(conn, "SELECT COUNT(*) AS n FROM route_cache")
+        events_count   = _count(conn, "SELECT COUNT(*) AS n FROM campus_events")
+
+        # ── Data integrity checks ──────────────────────────────────────────────
+        integrity = {
+            "parking_lots_loaded": n_lots > 0,
+            "gates_loaded": n_gates > 0,
+            "occupancy_history_no_nulls": null_vals == 0,
+            "experiment_results_present": exp_total > 0,
+            "prediction_model_trained": syn_rows > 0,
         }
-        counts: dict = {}
-        for name, sql in tables.items():
-            try:
-                row = conn.execute(sql).fetchone()
-                counts[name] = row[0] if row else 0
-            except Exception:
-                counts[name] = None
-        return {"status": "ok", "record_counts": counts}
+
+        return {
+            "status": "ok",
+            "occupancy_history": {
+                "total": total_obs,
+                "real_manual": real_manual,
+                "simulated_synthetic": sim_synth,
+                "null_values": null_vals,
+                "source": "lot_occupancy_history (database)",
+                "date_range": date_range,
+            },
+            "campus_config": {
+                "parking_lots": n_lots,
+                "gates": n_gates,
+                "roads": n_roads,
+                "destinations": n_dests,
+                "source": "configs/campus/vitap.yaml -> database",
+                "generation": "OSM-calibrated hand-crafted campus graph",
+            },
+            "synthetic_training_data": {
+                "rows": syn_rows,
+                "last_generated": syn_last,
+                "source": f"[{syn_mode.upper()}] {syn_label}",
+                "generation": "digital_twin/prediction/training_data.py (BPR + demand profile)",
+                "note": "Clearly labelled synthetic; real sensor data replaces it after 1 week of readings.",
+            },
+            "simulation_runs": {
+                "total": n_sim_runs,
+                "source": "simulation_runs table (database)",
+            },
+            "experiment_results": {
+                "total_runs": exp_total,
+                "source": "experiments/results/results_summary.json",
+            },
+            "record_counts": {
+                "parking_observations": raw_obs_count,
+                "occupancy_snapshots": occ_snap_count,
+                "route_cache": route_count,
+                "campus_events": events_count,
+            },
+            "data_integrity": integrity,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Data summary failed: {e}")
 
