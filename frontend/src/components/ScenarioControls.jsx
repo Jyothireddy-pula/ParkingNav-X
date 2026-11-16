@@ -1,16 +1,21 @@
 import React, { useEffect, useState } from 'react'
-import {
-  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer
-} from 'recharts'
 import { api } from '../api'
 
 const COMPARE_METRICS = [
-  { key: 'avg_search_time_min', label: 'Avg Search Time (min)' },
-  { key: 'avg_wait_time_min',   label: 'Avg Wait Time (min)' },
-  { key: 'avg_gate_queue',      label: 'Avg Gate Queue' },
-  { key: 'overflow_events',     label: 'Overflow Events' },
+  { key: 'avg_search_time_min', label: 'Avg Search Time (min)', lower: true },
+  { key: 'avg_wait_time_min',   label: 'Avg Wait Time (min)',   lower: true },
+  { key: 'avg_gate_queue',      label: 'Avg Gate Queue',        lower: true },
+  { key: 'overflow_events',     label: 'Overflow Events',       lower: true },
 ]
+
+const fmt = (v) => {
+  if (v == null || !Number.isFinite(v)) return '—'
+  if (v === 0) return '0'
+  if (Math.abs(v) >= 100) return v.toFixed(1)
+  if (Math.abs(v) >= 10)  return v.toFixed(2)
+  if (Math.abs(v) >= 1)   return v.toFixed(3)
+  return v.toFixed(4)
+}
 
 const STRATEGY_LABELS = {
   B1: 'B1 First Available',
@@ -37,8 +42,6 @@ export default function ScenarioControls() {
   const [comparing, setComparing] = useState(false)
   const [simError, setSimError] = useState('')
   const [compareError, setCompareError] = useState('')
-  const [compareMetric, setCompareMetric] = useState('avg_search_time_min')
-
   useEffect(() => {
     Promise.all([api.getScenarios(), api.getStrategies()]).then(([sRes, stRes]) => {
       const scens = sRes.data.scenarios || []
@@ -77,15 +80,6 @@ export default function ScenarioControls() {
       setComparing(false)
     }
   }
-
-  // Build comparison chart: one bar per strategy for the selected metric
-  const activeCmpMeta = COMPARE_METRICS.find(m => m.key === compareMetric) || COMPARE_METRICS[0]
-  const chartData = compareResult
-    ? ['B1', 'B2', 'B3', 'P'].map(code => ({
-        strategy: code,
-        value: compareResult.comparison?.[code]?.[activeCmpMeta.key] ?? null,
-      }))
-    : []
 
   return (
     <div className="space-y-6">
@@ -181,64 +175,76 @@ export default function ScenarioControls() {
         </div>
       )}
 
-      {/* Comparison chart */}
-      {compareResult && (
-        <div className="bg-white rounded-lg shadow p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-1">
-            Strategy Comparison — {compareResult.scenario}
-          </h3>
-          <div className="mb-3 flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-600">Metric:</label>
-            <select
-              value={compareMetric}
-              onChange={e => setCompareMetric(e.target.value)}
-              className="border border-gray-300 rounded px-2 py-1 text-xs"
-            >
-              {COMPARE_METRICS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </select>
-            <span className="text-xs text-gray-400">lower is better ↓</span>
-          </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="strategy" tick={{ fontSize: 13, fontWeight: 600 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v) => [v?.toFixed ? v.toFixed(3) : v, activeCmpMeta.label]} />
-              <Bar dataKey="value" name={activeCmpMeta.label} radius={[4, 4, 0, 0]}>
-                {chartData.map(entry => (
-                  <Cell key={entry.strategy} fill={STRATEGY_COLORS[entry.strategy]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Comparison — all metrics at a glance */}
+      {compareResult && (() => {
+        const cmp = compareResult.comparison || {}
+        const strategies = ['B1', 'B2', 'B3', 'P']
+        const pWins = COMPARE_METRICS.filter(m => {
+          const vals = strategies.map(s => cmp[s]?.[m.key]).filter(v => v != null && Number.isFinite(v))
+          if (vals.length === 0) return false
+          return cmp['P']?.[m.key] === Math.min(...vals)
+        }).length
 
-          {/* Table */}
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-3 text-gray-500">Strategy</th>
-                  <th className="text-right py-2 px-3 text-gray-500">Search Time</th>
-                  <th className="text-right py-2 px-3 text-gray-500">Wait Time</th>
-                  <th className="text-right py-2 px-3 text-gray-500">Avg Queue</th>
-                  <th className="text-right py-2 px-3 text-gray-500">Overflow</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(compareResult.comparison || {}).map(([code, m]) => (
-                  <tr key={code} className={`border-b ${code === 'P' ? 'bg-green-50 font-semibold' : ''}`}>
-                    <td className="py-2 px-3">{STRATEGY_LABELS[code] || code}</td>
-                    <td className="text-right py-2 px-3">{m.avg_search_time_min ?? '—'}</td>
-                    <td className="text-right py-2 px-3">{m.avg_wait_time_min ?? '—'}</td>
-                    <td className="text-right py-2 px-3">{m.avg_gate_queue ?? '—'}</td>
-                    <td className="text-right py-2 px-3">{m.overflow_events ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        return (
+          <div className="bg-white rounded-lg shadow p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700">
+                  Strategy Comparison — {compareResult.scenario?.replace(/_/g, ' ')}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">Lower is better for all metrics</p>
+              </div>
+              <span className="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full">
+                ParkingNav-X wins {pWins}/{COMPARE_METRICS.length} metrics
+              </span>
+            </div>
+
+            {/* Per-metric cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {COMPARE_METRICS.map(m => {
+                const vals = strategies.map(s => ({ s, v: cmp[s]?.[m.key] }))
+                const finite = vals.filter(x => x.v != null && Number.isFinite(x.v)).map(x => x.v)
+                const maxVal = finite.length ? Math.max(...finite, 1e-9) : 1
+                const minVal = finite.length ? Math.min(...finite) : 0
+                const pVal = cmp['P']?.[m.key]
+                const pIsBest = pVal != null && pVal === minVal
+
+                return (
+                  <div key={m.key} className={`rounded-lg border p-3 ${pIsBest ? 'border-green-300 bg-green-50' : 'border-gray-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-gray-600">{m.label}</span>
+                      {pIsBest && <span className="text-xs text-green-700 font-bold">✓ P wins</span>}
+                    </div>
+                    <div className="space-y-1.5">
+                      {strategies.map(s => {
+                        const v = cmp[s]?.[m.key]
+                        const pct = (v != null && Number.isFinite(v)) ? (v / maxVal) * 100 : 0
+                        const isP = s === 'P'
+                        const isBest = v != null && v === minVal
+                        return (
+                          <div key={s} className="flex items-center gap-2">
+                            <span className={`w-6 text-xs font-bold flex-shrink-0 ${isP ? 'text-green-700' : 'text-gray-500'}`}>{s}</span>
+                            <div className="flex-1 bg-gray-100 rounded h-5 overflow-hidden">
+                              <div
+                                className="h-full rounded transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: STRATEGY_COLORS[s] }}
+                              />
+                            </div>
+                            <span className={`w-16 text-right text-xs font-mono flex-shrink-0 ${isBest ? 'text-green-700 font-bold' : 'text-gray-600'}`}>
+                              {fmt(v)}
+                            </span>
+                            {isBest && <span className="text-green-600 text-xs">★</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }

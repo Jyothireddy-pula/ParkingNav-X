@@ -6,6 +6,15 @@ import {
 } from 'recharts'
 import { api } from '../api'
 
+const fmt = (v) => {
+  if (v == null || !Number.isFinite(v)) return '—'
+  if (v === 0) return '0'
+  if (Math.abs(v) >= 100) return v.toFixed(1)
+  if (Math.abs(v) >= 10)  return v.toFixed(2)
+  if (Math.abs(v) >= 1)   return v.toFixed(3)
+  return v.toFixed(4)
+}
+
 const STRATEGIES = ['B1', 'B2', 'B3', 'P']
 const STRATEGY_COLORS = { B1: '#94a3b8', B2: '#60a5fa', B3: '#a78bfa', P: '#10b981' }
 const METRICS = [
@@ -239,7 +248,7 @@ useEffect(() => {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="strategy" tick={{ fontSize: 13, fontWeight: 600 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => v != null ? v.toFixed(4) : '—'} />
+                <Tooltip formatter={(v) => [fmt(v), activeMetric.label]} />
                 <Bar dataKey="value" name={activeMetric.label} radius={[4, 4, 0, 0]}>
                   {chartData.map(d => (
                     <Cell key={d.strategy} fill={STRATEGY_COLORS[d.strategy]} />
@@ -264,7 +273,7 @@ useEffect(() => {
                     <div key={s} className="flex items-center justify-between text-xs py-0.5">
                       <span className={`font-bold ${s === 'P' ? 'text-green-700' : 'text-gray-500'}`}>{s}</span>
                       <span className={`font-mono ${s === 'P' ? 'text-green-700 font-semibold' : 'text-gray-700'}`}>
-                        {val != null ? val.toFixed(4) : '—'}
+                        {fmt(val)}
                       </span>
                     </div>
                   )
@@ -299,10 +308,10 @@ useEffect(() => {
                         <td className="py-1.5 px-3">
                           <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${isParkingNav ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>{s}</span>
                         </td>
-                        <td className="text-right py-1.5 px-3">{m.avg_search_time_min ?? '—'}</td>
-                        <td className="text-right py-1.5 px-3">{m.avg_wait_time_min ?? '—'}</td>
-                        <td className="text-right py-1.5 px-3">{m.avg_gate_queue ?? '—'}</td>
-                        <td className="text-right py-1.5 px-3">{m.overflow_events ?? '—'}</td>
+                        <td className="text-right py-1.5 px-3 font-mono">{fmt(m.avg_search_time_min)}</td>
+                        <td className="text-right py-1.5 px-3 font-mono">{fmt(m.avg_wait_time_min)}</td>
+                        <td className="text-right py-1.5 px-3 font-mono">{fmt(m.avg_gate_queue)}</td>
+                        <td className="text-right py-1.5 px-3 font-mono">{fmt(m.overflow_events)}</td>
                         <td className={`text-right py-1.5 px-3 font-medium ${isParkingNav ? 'text-green-700' : ''}`}>
                           {m.successful_park_rate != null
                             ? `${(m.successful_park_rate * 100).toFixed(1)}%`
