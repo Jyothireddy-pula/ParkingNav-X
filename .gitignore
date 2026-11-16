@@ -57,3 +57,7 @@ frontend/dist/
 
 
 *.db.before_demo
+
+# Local env files with secrets
+frontend/.env
+.env
