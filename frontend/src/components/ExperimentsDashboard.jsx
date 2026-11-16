@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, RadarChart, Radar, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis
 } from 'recharts'
@@ -116,14 +116,14 @@ useEffect(() => {
   }
 }
 
-  // Build chart data for selected scenario
+  // Build chart data for selected scenario + selected metric
   const scenarioData = results[selectedScenario] || {}
-  const chartData = METRICS.map(m => ({
-    metric: m.label,
-    B1: scenarioData.B1?.[m.key] ?? null,
-    B2: scenarioData.B2?.[m.key] ?? null,
-    B3: scenarioData.B3?.[m.key] ?? null,
-    P: scenarioData.P?.[m.key] ?? null,
+  const activeMetric = METRICS.find(m => m.key === selectedMetric) || METRICS[0]
+
+  // One bar per strategy for the selected metric
+  const chartData = STRATEGIES.map(s => ({
+    strategy: s,
+    value: scenarioData[s]?.[activeMetric.key] ?? null,
   }))
 
   // Radar data (normalized) for selected scenario
@@ -228,23 +228,49 @@ useEffect(() => {
 
       {hasResults && (
         <>
-          {/* Strategy Comparison Bar Chart */}
+          {/* Strategy Comparison Bar Chart — selected metric */}
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
               Strategy Comparison — {selectedScenario.replace(/_/g, ' ')}
             </h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+            <p className="text-xs text-gray-400 mb-3">{activeMetric.label} · {activeMetric.lower ? 'lower is better' : 'higher is better'}</p>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="metric" tick={{ fontSize: 10 }} />
+                <XAxis dataKey="strategy" tick={{ fontSize: 13, fontWeight: 600 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                {STRATEGIES.map(s => (
-                  <Bar key={s} dataKey={s} fill={STRATEGY_COLORS[s]} />
-                ))}
+                <Tooltip formatter={(v) => v != null ? v.toFixed(4) : '—'} />
+                <Bar dataKey="value" name={activeMetric.label} radius={[4, 4, 0, 0]}>
+                  {chartData.map(d => (
+                    <Cell key={d.strategy} fill={STRATEGY_COLORS[d.strategy]} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* All-metrics summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {METRICS.map(m => (
+              <div
+                key={m.key}
+                onClick={() => setSelectedMetric(m.key)}
+                className={`bg-white rounded-lg shadow p-3 cursor-pointer border-2 transition-colors ${selectedMetric === m.key ? 'border-vitap-blue' : 'border-transparent hover:border-gray-200'}`}
+              >
+                <div className="text-xs text-gray-500 mb-2 leading-tight">{m.label}</div>
+                {STRATEGIES.map(s => {
+                  const val = scenarioData[s]?.[m.key]
+                  return (
+                    <div key={s} className="flex items-center justify-between text-xs py-0.5">
+                      <span className={`font-bold ${s === 'P' ? 'text-green-700' : 'text-gray-500'}`}>{s}</span>
+                      <span className={`font-mono ${s === 'P' ? 'text-green-700 font-semibold' : 'text-gray-700'}`}>
+                        {val != null ? val.toFixed(4) : '—'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </div>
 
           {/* Summary Table (all scenarios) */}
