@@ -94,94 +94,52 @@ export default function RecordCountsTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-bold text-gray-800">Dataset Overview &amp; Record Counts</h2>
-        <p className="text-sm text-gray-500">Live record counts from the database. All figures fetched from backend — none are hardcoded.</p>
+        <h2 className="text-lg font-bold text-gray-800">Dataset Overview</h2>
+        <p className="text-sm text-gray-500">Live figures from the database — none are hardcoded.</p>
       </div>
 
       {summaryLoading && (
-        <div className="p-4 text-center text-gray-400 text-sm">Loading dataset statistics…</div>
+        <div className="p-4 text-center text-gray-400 text-sm">Loading…</div>
       )}
 
       {summaryError && (
         <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded">{summaryError}</div>
       )}
 
-      {/* Occupancy History */}
+      {/* Campus + Occupancy at a glance */}
+      {(cfg || obs) && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {cfg && <>
+            <StatCard label="Parking Lots"   value={cfg.parking_lots} color="text-blue-700" />
+            <StatCard label="Gates"          value={cfg.gates} />
+            <StatCard label="Road Segments"  value={cfg.roads} />
+            <StatCard label="Destinations"   value={cfg.destinations} />
+          </>}
+        </div>
+      )}
+
       {obs && (
-        <Section title="Parking Occupancy History" badge={`${obs.total.toLocaleString()} records`}>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <StatCard label="Total Records" value={obs.total.toLocaleString()} color="text-blue-700" />
-            <StatCard label="Real / Manual" value={obs.real_manual.toLocaleString()} color="text-green-700"
-              sub="source ≠ simulation/synthetic" />
-            <StatCard label="Simulated / Synthetic" value={obs.simulated_synthetic.toLocaleString()} color="text-orange-600" />
-            <StatCard label="Null Values" value={obs.null_values} color={obs.null_values > 0 ? 'text-red-600' : 'text-gray-500'} />
-          </div>
-          <div className="text-xs text-gray-500 space-y-0.5">
-            <div><span className="font-medium">Source:</span> {obs.source}</div>
-            {obs.date_range?.from && <div><span className="font-medium">Date range:</span> {obs.date_range.from?.slice(0,16)} → {obs.date_range.to?.slice(0,16)}</div>}
-            <div><span className="font-medium">Data quality:</span> {obs.null_values === 0 ? '✅ No null occupied_spaces values' : `⚠️ ${obs.null_values} null values`}</div>
-          </div>
-        </Section>
-      )}
-
-      {/* Campus Configuration */}
-      {cfg && (
-        <Section title="Campus Configuration" badge="OSM-calibrated">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-            <StatCard label="Parking Lots" value={cfg.parking_lots} color="text-blue-700" />
-            <StatCard label="Gates" value={cfg.gates} />
-            <StatCard label="Road Segments" value={cfg.roads} />
-            <StatCard label="Destinations" value={cfg.destinations} />
-          </div>
-          <div className="text-xs text-gray-500 space-y-0.5">
-            <div><span className="font-medium">Source:</span> {cfg.source}</div>
-            <div><span className="font-medium">Generation:</span> {cfg.generation}</div>
-          </div>
-        </Section>
-      )}
-
-      {/* Synthetic Training Data */}
-      {syn && (
-        <Section title="Synthetic Training Data" badge="Calibrated model">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-            <StatCard label="Training Rows" value={syn.rows.toLocaleString()} color="text-purple-700" />
-            <StatCard label="Last Generated" value={syn.last_generated?.slice(0,16) ?? 'unknown'} />
-            <StatCard label="Data Source" value="Synthetic" color="text-orange-600" sub="Clearly labelled" />
-          </div>
-          <div className="text-xs text-gray-500 space-y-0.5">
-            <div><span className="font-medium">Method:</span> {syn.source}</div>
-            <div><span className="font-medium">Code:</span> {syn.generation}</div>
-            <div><span className="font-medium">Note:</span> {syn.note}</div>
+        <Section title="Occupancy Records" badge={`${obs.total} total`}>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <StatCard label="Real / Manual"       value={obs.real_manual}         color="text-green-700" />
+            <StatCard label="Simulated/Synthetic" value={obs.simulated_synthetic} color="text-orange-600" />
+            <StatCard label="Data Quality"
+              value={obs.null_values === 0 ? '✅ Clean' : `⚠️ ${obs.null_values} nulls`}
+              color={obs.null_values > 0 ? 'text-red-600' : 'text-green-700'} />
           </div>
         </Section>
       )}
 
       {/* Simulations & Experiments */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {sim && (
-          <Section title="Simulation Runs">
-            <StatCard label="Total Runs" value={sim.total} color="text-blue-700" sub={sim.source} />
-          </Section>
-        )}
-        {exp && (
-          <Section title="Experiment Results">
-            <StatCard label="Result Records" value={exp.total_runs} color="text-green-700" sub={exp.source} />
-          </Section>
-        )}
-      </div>
-
-      {/* Data Integrity */}
-      {summary?.data_integrity && (
-        <Section title="Data Integrity Checks">
-          <div className="space-y-1 text-xs">
-            {Object.entries(summary.data_integrity).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2">
-                <span>{v ? '✅' : '❌'}</span>
-                <span className="text-gray-600">{k.replace(/_/g, ' ')}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
+      {(sim || exp) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sim && <Section title="Simulation Runs">
+            <StatCard label="Total Runs" value={sim.total} color="text-blue-700" />
+          </Section>}
+          {exp && <Section title="Experiment Results">
+            <StatCard label="Stored Records" value={exp.total_runs} color="text-green-700" />
+          </Section>}
+        </div>
       )}
 
       {/* Manual Count Entry — collapsible */}
