@@ -52,7 +52,7 @@ export default function RecommendationPanel() {
     setRecs([])
 
     try {
-      const res = await api.optimize('E1_normal_day', wp)
+      const res = await api.optimize(undefined, wp)
 
       if (res.data?.error) {
         throw new Error(res.data.error)
@@ -98,6 +98,7 @@ export default function RecommendationPanel() {
       {/* Data source note */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-xs text-blue-700">
         Recommendations are computed from <strong>live campus occupancy + 15-min forecast</strong>, not a scenario playback.
+        Gate queue costs (w1, w2) are zero when no live simulation is running — this is correct, not a data error.
         Select a weight profile below to change which costs the optimizer minimises.
       </div>
 
