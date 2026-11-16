@@ -33,10 +33,50 @@ SCENARIO_DIR = ROOT / "configs" / "scenarios" / "vitap"
 RESULTS_FILE = ROOT / "experiments" / "results" / "all_results.json"
 SUMMARY_FILE = ROOT / "experiments" / "results" / "results_summary.json"
 
+_DESCRIPTION = """
+## VIT-AP University Smart Parking Digital Twin
+
+**ParkingNav-X** is a live digital twin of the VIT-AP campus parking system.
+Use the **Try it out** button on any endpoint to send a real request.
+
+### Quick-start values for Try it out
+
+| Field | Example value |
+|---|---|
+| `scenario` | `E1_normal_day` |
+| `strategy` | `P` |
+| `gate_id` | `vitap-gate-main` |
+| `destination_id` | `vitap-osm-mh5-001` |
+| `lot_id` | `vitap-lot-hostel` |
+| `origin_id` | `vitap-gate-main` |
+| `destination_id` | `vitap-lot-hostel` |
+
+### Tag groups
+- **Info** — health check and API metadata
+- **Campus** — gates, parking lots, roads, destinations, observations
+- **Simulation** — run & compare parking strategies
+- **Routing** — point-to-point routes and find-parking recommendations
+- **Prediction** — ML occupancy forecasts
+- **Risk** — overflow risk assessment
+- **Optimization** — gate/lot assignment recommendations
+- **Experiments** — stored multi-seed experiment results
+"""
+
 app = FastAPI(
     title="ParkingNav-X API",
-    description="VIT-AP University Smart Parking Digital Twin — REST API",
+    description=_DESCRIPTION,
     version="2.0.0",
+    openapi_tags=[
+        {"name": "Info",         "description": "Health check and API metadata"},
+        {"name": "Campus",       "description": "Gates, parking lots, roads, destinations and live observations"},
+        {"name": "Operator",     "description": "Real-time lot overrides (close / reopen / capacity change)"},
+        {"name": "Simulation",   "description": "Run parking simulations and compare strategies B1–B3 vs P"},
+        {"name": "Routing",      "description": "Campus routing: point-to-point paths and smart parking finder"},
+        {"name": "Prediction",   "description": "ML-based occupancy forecasts per lot"},
+        {"name": "Risk",         "description": "Overflow risk scores and forecasts"},
+        {"name": "Optimization", "description": "Gate assignment recommendations with cost breakdown"},
+        {"name": "Experiments",  "description": "Stored multi-seed experiment results (E1–E6)"},
+    ],
 )
 
 app.add_middleware(
@@ -148,15 +188,43 @@ class SimulateRequest(BaseModel):
     scenario: str = "E1_normal_day"
     strategy: str = "P"
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"scenario": "E1_normal_day", "strategy": "P"},
+                {"scenario": "E2_event_placement", "strategy": "B2"},
+                {"scenario": "E4_gate_closure", "strategy": "B3"},
+            ]
+        }
+    }
+
 
 class PredictRequest(BaseModel):
     lot_id: str
     horizon_minutes: int = 15
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"lot_id": "vitap-lot-hostel", "horizon_minutes": 15},
+                {"lot_id": "vitap-lot-academic-main", "horizon_minutes": 30},
+            ]
+        }
+    }
+
 
 class OptimizeRequest(BaseModel):
     scenario: str = "E1_normal_day"
     weight_profile: str = "P1"
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"scenario": "E1_normal_day", "weight_profile": "P1"},
+                {"scenario": "E2_event_placement", "weight_profile": "P2"},
+            ]
+        }
+    }
 
 
 class RouteRequest(BaseModel):
@@ -164,12 +232,31 @@ class RouteRequest(BaseModel):
     destination: str
     mode: str = "drive"  # drive | walk
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"origin": "vitap-gate-main", "destination": "vitap-lot-hostel", "mode": "drive"},
+                {"origin": "vitap-lot-hostel", "destination": "vitap-osm-mh5-001", "mode": "walk"},
+            ]
+        }
+    }
+
 
 class OperatorOverrideRequest(BaseModel):
     lot_id: str
     action: str          # "close" | "open" | "cap_override"
     reason: str = ""
     override_capacity: Optional[int] = None  # used with action="cap_override"
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"lot_id": "vitap-lot-sports", "action": "close", "reason": "Maintenance"},
+                {"lot_id": "vitap-lot-sports", "action": "open",  "reason": "Maintenance done"},
+                {"lot_id": "vitap-lot-overflow", "action": "cap_override", "override_capacity": 80, "reason": "Reserved for event"},
+            ]
+        }
+    }
 
 
 class ObservationRecord(BaseModel):
@@ -180,12 +267,41 @@ class ObservationRecord(BaseModel):
     vehicle_count: Optional[int] = None
     source: str = "sensor"   # sensor | manual | synthetic
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "timestamp": "2024-11-16T09:30:00",
+                    "lot_id": "vitap-lot-hostel",
+                    "occupied_spaces": 45,
+                    "gate_id": "vitap-gate-main",
+                    "vehicle_count": 48,
+                    "source": "sensor",
+                },
+                {
+                    "timestamp": "2024-11-16T10:00:00",
+                    "lot_id": "vitap-lot-academic-main",
+                    "occupied_spaces": 120,
+                    "source": "manual",
+                },
+            ]
+        }
+    }
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@app.get("/health", tags=["Info"])
+@app.get(
+    "/health",
+    tags=["Info"],
+    summary="Health check",
+    response_description="API status and DB reachability",
+)
 def health():
-    """Liveness check — returns 200 when the API is up and the DB is reachable."""
+    """Liveness check — returns `200 ok` when the API is up and the DB is reachable.
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     try:
         conn = get_conn()
         conn.execute("SELECT 1").fetchone()
@@ -210,9 +326,20 @@ def root():
     }
 
 
-@app.get("/campus", tags=["Campus"])
+@app.get(
+    "/campus",
+    tags=["Campus"],
+    summary="Get campus layout",
+    response_description="Gates, parking lots, roads and destinations",
+)
 def get_campus():
-    """Return VIT-AP campus summary: gates, parking lots, roads, destinations."""
+    """Return the full VIT-AP campus layout.
+
+    Returns all **gates**, **parking lots** (with boundary polygons), **roads** (with geometry),
+    and **destinations** (hostels, labs, library, gym, …).
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     conn = get_conn()
     gates = conn.execute(
         "SELECT gate_id, name, latitude, longitude, capacity, status, coordinate_source, coordinate_accuracy_m "
@@ -356,14 +483,47 @@ def get_campus_graph():
     return _graph_service.to_json(graph)
 
 
-@app.get("/scenarios", tags=["Simulation"])
+@app.get(
+    "/scenarios",
+    tags=["Simulation"],
+    summary="List available scenarios",
+    response_description="Scenario IDs to use in /simulate and /compare",
+)
 def list_scenarios():
+    """List all simulation scenarios.
+
+    Use these IDs in `/simulate` → `scenario` and `/compare/{scenario}`.
+
+    **Available scenarios:**
+    - `E1_normal_day` — typical weekday
+    - `E2_event_placement` — placement season (high demand)
+    - `E4_gate_closure` — one gate closed
+    - and more...
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     files = sorted(SCENARIO_DIR.glob("*.yaml"))
     return {"scenarios": [f.stem for f in files]}
 
 
-@app.get("/strategies", tags=["Simulation"])
+@app.get(
+    "/strategies",
+    tags=["Simulation"],
+    summary="List parking strategies",
+    response_description="Strategy codes and descriptions",
+)
 def list_strategies():
+    """List all parking allocation strategies.
+
+    | Code | Name | Description |
+    |------|------|-------------|
+    | `B1` | First Available | Naive — first open lot |
+    | `B2` | Nearest Available | Closest open lot by distance |
+    | `B3` | Prediction Only | Avoids nearly-full lots |
+    | `P` | ParkingNav-X | Full system (prediction + routing + load balance) |
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     return {
         "strategies": [
             {"code": "B1", "name": "First Available",     "description": "Naive — assigns first open lot found"},
@@ -374,8 +534,22 @@ def list_strategies():
     }
 
 
-@app.post("/simulate", tags=["Simulation"])
+@app.post(
+    "/simulate",
+    tags=["Simulation"],
+    summary="Run a parking simulation",
+    response_description="Simulation metrics: overflow, search time, queue stats",
+)
 def simulate(req: SimulateRequest):
+    """Run a single parking simulation and return metrics.
+
+    **Try these combinations:**
+    - `scenario=E1_normal_day` + `strategy=P` (ParkingNav-X full system)
+    - `scenario=E2_event_placement` + `strategy=B2` (baseline nearest)
+    - `scenario=E4_gate_closure` + `strategy=B3` (prediction only)
+
+    Returns overflow events, avg search time, avg wait time, gate queue stats.
+    """
     scenario_file = SCENARIO_DIR / f"{req.scenario}.yaml"
     if not scenario_file.exists():
         available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
@@ -539,14 +713,66 @@ def get_events():
 
 # ── Routing endpoints ──────────────────────────────────────────────────────────
 
-@app.get("/route", tags=["Routing"])
+@app.get(
+    "/route",
+    tags=["Routing"],
+    summary="Get point-to-point route",
+    response_description="Dijkstra path with geometry, time and distance",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "origin",
+                "in": "query",
+                "required": True,
+                "schema": {
+                    "type": "string",
+                    "example": "vitap-gate-main",
+                    "enum": [
+                        "vitap-gate-main", "vitap-gate-visitor",
+                        "vitap-lot-hostel", "vitap-lot-sports",
+                        "vitap-lot-academic-main", "vitap-lot-admin-visitor",
+                        "vitap-lot-overflow",
+                    ],
+                },
+                "description": "Start node ID (gate or parking lot)",
+            },
+            {
+                "name": "destination",
+                "in": "query",
+                "required": True,
+                "schema": {
+                    "type": "string",
+                    "example": "vitap-lot-hostel",
+                    "enum": [
+                        "vitap-lot-hostel", "vitap-lot-sports",
+                        "vitap-lot-academic-main", "vitap-lot-admin-visitor",
+                        "vitap-lot-overflow", "vitap-osm-mh5-001",
+                        "vitap-osm-mh4-001", "vitap-osm-lh2-001",
+                        "vitap-lib-001", "vitap-gym-001",
+                    ],
+                },
+                "description": "End node ID (parking lot or destination)",
+            },
+            {
+                "name": "mode",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "string", "enum": ["drive", "walk"], "default": "drive"},
+                "description": "Travel mode",
+            },
+        ]
+    },
+)
 def get_route(origin: str, destination: str, mode: str = "drive"):
     """
-    Compute shortest path between two campus nodes.
+    Compute the Dijkstra shortest path between two campus nodes.
 
-    - **origin**: node_id (gate, parking_lot, or destination)
-    - **destination**: node_id
-    - **mode**: 'drive' (driveable roads only) or 'walk' (walkable paths)
+    **Try these combinations:**
+    - Drive: `origin=vitap-gate-main` → `destination=vitap-lot-hostel` → `mode=drive`
+    - Drive: `origin=vitap-gate-visitor` → `destination=vitap-lot-academic-main` → `mode=drive`
+    - Walk:  `origin=vitap-lot-hostel` → `destination=vitap-osm-mh5-001` → `mode=walk`
+
+    Returns path, geometry (polyline), total time and distance.
     """
     conn = get_conn()
     graph = _build_graph(conn)
@@ -628,14 +854,54 @@ class ShortestPathRequest(BaseModel):
     travel_mode: str = "driving"   # "driving" or "walking"
     optimization: str = "fastest"  # "fastest" or "shortest_distance"
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "origin_id": "vitap-gate-main",
+                    "destination_id": "vitap-lot-hostel",
+                    "travel_mode": "driving",
+                    "optimization": "fastest",
+                },
+                {
+                    "origin_id": "vitap-gate-visitor",
+                    "destination_id": "vitap-lot-academic-main",
+                    "travel_mode": "driving",
+                    "optimization": "shortest_distance",
+                },
+                {
+                    "origin_id": "vitap-lot-hostel",
+                    "destination_id": "vitap-osm-mh5-001",
+                    "travel_mode": "walking",
+                    "optimization": "fastest",
+                },
+            ]
+        }
+    }
 
-@app.post("/routing/shortest-path", tags=["Routing"])
+
+@app.post(
+    "/routing/shortest-path",
+    tags=["Routing"],
+    summary="Shortest or fastest path between campus nodes",
+    response_description="Dijkstra route with geometry, duration and distance",
+)
 def routing_shortest_path(req: ShortestPathRequest):
     """
-    Compute the optimal route between two campus nodes.
+    Compute the optimal route between two campus nodes using Dijkstra.
 
-    - **optimization**: 'fastest' (minimize time) or 'shortest_distance' (minimize metres)
-    - **travel_mode**: 'driving' or 'walking'
+    **optimization options:**
+    - `fastest` — minimize travel time
+    - `shortest_distance` — minimize distance in metres
+
+    **travel_mode options:**
+    - `driving` — driveable roads only
+    - `walking` — walkable paths only
+
+    **Try these examples (pre-filled in the request body above):**
+    1. Drive gate→lot (fastest): `vitap-gate-main` → `vitap-lot-hostel`
+    2. Drive gate→lot (shortest distance): `vitap-gate-visitor` → `vitap-lot-academic-main`
+    3. Walk lot→destination: `vitap-lot-hostel` → `vitap-osm-mh5-001`
     """
     conn = get_conn()
     graph = _build_graph(conn)
@@ -679,10 +945,54 @@ def routing_shortest_path(req: ShortestPathRequest):
     }
 
 
-@app.get("/find_parking", tags=["Routing"])
+@app.get(
+    "/find_parking",
+    tags=["Routing"],
+    summary="Find best parking for a destination",
+    response_description="Ranked parking options with drive + walk routes",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "destination_id",
+                "in": "query",
+                "required": True,
+                "schema": {
+                    "type": "string",
+                    "example": "vitap-osm-mh5-001",
+                    "enum": [
+                        "vitap-osm-mh5-001",
+                        "vitap-osm-mh4-001",
+                        "vitap-osm-lh2-001",
+                        "vitap-lib-001",
+                        "vitap-gym-001",
+                    ],
+                },
+                "description": "Where the user is going (hostel, library, gym, …)",
+            },
+            {
+                "name": "gate_id",
+                "in": "query",
+                "required": False,
+                "schema": {
+                    "type": "string",
+                    "default": "vitap-gate-main",
+                    "enum": ["vitap-gate-main", "vitap-gate-visitor"],
+                },
+                "description": "Entry gate the vehicle uses",
+            },
+        ]
+    },
+)
 def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
     """
     Find the best parking lot for a given destination, with vehicle + walking routes.
+
+    **Try these:**
+    - `destination_id=vitap-osm-mh5-001` (MH-1 hostel) + `gate_id=vitap-gate-main`
+    - `destination_id=vitap-lib-001` (library) + `gate_id=vitap-gate-visitor`
+    - `destination_id=vitap-gym-001` (gym) + `gate_id=vitap-gate-main`
+
+    Returns ranked parking lots with drive route (gate→lot) and walk route (lot→destination).
 
     Returns ranked parking options:
     - Vehicle route: gate → parking lot (driveable)
@@ -1086,11 +1396,51 @@ def retrain_predictor():
     return retrain(get_conn())
 
 
-@app.get("/predict/occupancy", tags=["Prediction"])
+@app.get(
+    "/predict/occupancy",
+    tags=["Prediction"],
+    summary="Predict occupancy for one lot",
+    response_description="Fill rate forecast with 90% confidence interval",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "lot_id",
+                "in": "query",
+                "required": False,
+                "schema": {
+                    "type": "string",
+                    "default": "vitap-lot-academic-main",
+                    "enum": [
+                        "vitap-lot-academic-main",
+                        "vitap-lot-hostel",
+                        "vitap-lot-admin-visitor",
+                        "vitap-lot-sports",
+                        "vitap-lot-overflow",
+                    ],
+                },
+                "description": "Parking lot ID",
+            },
+            {
+                "name": "horizon_minutes",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "integer", "default": 15, "enum": [5, 15, 30, 60]},
+                "description": "How many minutes ahead to forecast",
+            },
+        ]
+    },
+)
 def predict_occupancy(lot_id: str = "vitap-lot-academic-main", horizon_minutes: int = 15,
                       as_of: Optional[str] = None):
-    """Predict occupancy for a parking lot at horizon_minutes from now (or from `as_of`, a campus-local
-    ISO time, for what-if views)."""
+    """Predict occupancy for a parking lot at `horizon_minutes` from now.
+
+    **Try these:**
+    - `lot_id=vitap-lot-hostel` + `horizon_minutes=15`
+    - `lot_id=vitap-lot-academic-main` + `horizon_minutes=30`
+    - `lot_id=vitap-lot-sports` + `horizon_minutes=60`
+
+    Returns fill rate (0–1), 90% confidence interval and model used.
+    """
     try:
         from digital_twin.prediction.engine import forecast_context
         predictor, basis = forecast_context(get_conn(), as_of)
@@ -1110,10 +1460,30 @@ def predict_occupancy(lot_id: str = "vitap-lot-academic-main", horizon_minutes: 
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
-@app.get("/predict/all", tags=["Prediction"])
+@app.get(
+    "/predict/all",
+    tags=["Prediction"],
+    summary="Predict occupancy for all lots",
+    response_description="Fill rate forecasts for all 5 campus parking lots",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "horizon_minutes",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "integer", "default": 15, "enum": [5, 15, 30, 60]},
+                "description": "How many minutes ahead to forecast",
+            },
+        ]
+    },
+)
 def predict_all_lots(horizon_minutes: int = 15, as_of: Optional[str] = None):
-    """Predict occupancy for all VIT-AP parking lots. Follows the campus clock (synthetic daily pattern),
-    adjusted by recent live occupancy where it exists; `as_of` shows the pattern for another time."""
+    """Predict occupancy for **all 5** VIT-AP parking lots in one call.
+
+    Try it out: click **Try it out → Execute** (default `horizon_minutes=15` works).
+
+    Returns fill rate (0–1) + 90% CI for each lot.
+    """
     lot_ids = [
         "vitap-lot-academic-main",
         "vitap-lot-hostel",
@@ -1151,9 +1521,17 @@ def predict_all_lots(horizon_minutes: int = 15, as_of: Optional[str] = None):
 
 # ── Risk endpoints ─────────────────────────────────────────────────────────────
 
-@app.get("/risk/current", tags=["Risk"])
+@app.get(
+    "/risk/current",
+    tags=["Risk"],
+    summary="Current risk scores",
+    response_description="Risk scores for overflow, gate congestion, lot fill",
+)
 def get_current_risk():
-    """Return current risk scores across all risk dimensions."""
+    """Return current risk scores across all risk dimensions.
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     try:
         from digital_twin.risk.engine import RiskEngine
         conn = get_conn()
@@ -1164,9 +1542,28 @@ def get_current_risk():
         raise HTTPException(status_code=500, detail=f"Risk computation failed: {e}")
 
 
-@app.get("/risk/forecast", tags=["Risk"])
+@app.get(
+    "/risk/forecast",
+    tags=["Risk"],
+    summary="Forecasted risk scores",
+    response_description="Risk forecast at the given horizon",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "horizon",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "integer", "default": 15, "enum": [5, 15, 30, 60]},
+                "description": "Minutes ahead to forecast risk",
+            },
+        ]
+    },
+)
 def get_risk_forecast(horizon: int = 15, as_of: Optional[str] = None):
-    """Return forecasted risk scores at horizon minutes ahead (time-aware, like /predict/all)."""
+    """Return forecasted risk scores at `horizon` minutes ahead.
+
+    Try it out: click **Try it out → Execute** (default `horizon=15` works).
+    """
     try:
         from digital_twin.risk.engine import RiskEngine
         from digital_twin.prediction.engine import forecast_context
@@ -1181,9 +1578,17 @@ def get_risk_forecast(horizon: int = 15, as_of: Optional[str] = None):
 
 # ── Optimization endpoints ─────────────────────────────────────────────────────
 
-@app.get("/optimize/profiles", tags=["Optimization"])
+@app.get(
+    "/optimize/profiles",
+    tags=["Optimization"],
+    summary="List optimization weight profiles",
+    response_description="P1/P2/P3 profiles with weights",
+)
 def optimize_profiles():
-    """The weight profiles (P1/P2/P3) with their real weights, so the UI never keeps its own copy."""
+    """Return available weight profiles (P1/P2/P3) and their objective weights.
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     from digital_twin.optimization.engine import describe_profiles
     return {"profiles": describe_profiles()}
 
@@ -1209,9 +1614,17 @@ def optimize(req: OptimizeRequest):
         raise HTTPException(status_code=500, detail=f"Optimization failed: {e}")
 
 
-@app.get("/recommendations", tags=["Optimization"])
+@app.get(
+    "/recommendations",
+    tags=["Optimization"],
+    summary="Get proactive parking recommendations",
+    response_description="Ranked lot recommendations with cost breakdown",
+)
 def get_recommendations():
-    """Get latest proactive parking recommendations."""
+    """Get the latest proactive parking recommendations (uses default weight profile P1).
+
+    Try it out: click **Try it out → Execute**. No parameters needed.
+    """
     try:
         import time as _time
         from digital_twin.optimization.engine import MultiObjectiveOptimizer
@@ -1231,6 +1644,16 @@ class ExperimentRunRequest(BaseModel):
     scenario: str
     strategies: List[str] = ["B1", "B2", "B3", "P"]
     seeds: List[int] = [0, 1, 2]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"scenario": "E1_normal_day", "strategies": ["B1", "B2", "B3", "P"], "seeds": [0, 1, 2]},
+                {"scenario": "E2_event_placement", "strategies": ["B3", "P"], "seeds": [0]},
+                {"scenario": "E4_gate_closure", "strategies": ["P"], "seeds": [0, 1, 2, 3, 4]},
+            ]
+        }
+    }
 
 
 def _load_results() -> list:
