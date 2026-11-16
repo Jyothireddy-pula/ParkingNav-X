@@ -184,7 +184,7 @@ useEffect(() => {
           disabled={loading}
           className="px-4 py-2 bg-vitap-blue text-white rounded-md text-sm font-medium hover:bg-blue-800 disabled:opacity-50"
         >
-          {loading ? '⏳ Loading Results...' : '🔬 Load Experiment Results'}
+          {loading ? '⏳ Refreshing…' : '↻ Refresh Results'}
         </button>
       </div>
 
