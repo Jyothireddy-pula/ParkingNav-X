@@ -622,6 +622,63 @@ def get_route(origin: str, destination: str, mode: str = "drive"):
     }
 
 
+class ShortestPathRequest(BaseModel):
+    origin_id: str
+    destination_id: str
+    travel_mode: str = "driving"   # "driving" or "walking"
+    optimization: str = "fastest"  # "fastest" or "shortest_distance"
+
+
+@app.post("/routing/shortest-path", tags=["Routing"])
+def routing_shortest_path(req: ShortestPathRequest):
+    """
+    Compute the optimal route between two campus nodes.
+
+    - **optimization**: 'fastest' (minimize time) or 'shortest_distance' (minimize metres)
+    - **travel_mode**: 'driving' or 'walking'
+    """
+    conn = get_conn()
+    graph = _build_graph(conn)
+
+    if req.origin_id not in graph:
+        raise HTTPException(status_code=404, detail=f"Origin '{req.origin_id}' not found in campus graph")
+    if req.destination_id not in graph:
+        raise HTTPException(status_code=404, detail=f"Destination '{req.destination_id}' not found in campus graph")
+
+    mode = "drive" if req.travel_mode == "driving" else "walk"
+    weight = "weight_distance_meters" if req.optimization == "shortest_distance" else "weight_time_seconds"
+
+    def ef(u, v, data):
+        if data.get("status") != "open":
+            return False
+        return bool(data.get("is_driveable")) if mode == "drive" else bool(data.get("is_walkable"))
+
+    filtered = nx.subgraph_view(graph, filter_edge=lambda u, v, k=None: ef(u, v, graph.edges[u, v]))
+    try:
+        path = nx.dijkstra_path(filtered, req.origin_id, req.destination_id, weight=weight)
+        t = nx.dijkstra_path_length(filtered, req.origin_id, req.destination_id, weight="weight_time_seconds")
+        d = nx.dijkstra_path_length(filtered, req.origin_id, req.destination_id, weight="weight_distance_meters")
+        geometry = _route_geometry(graph, path)
+    except nx.NetworkXNoPath:
+        raise HTTPException(status_code=422, detail=f"No {req.travel_mode} route from '{req.origin_id}' to '{req.destination_id}'.")
+    except nx.NodeNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {
+        "success": True,
+        "origin_id": req.origin_id,
+        "destination_id": req.destination_id,
+        "route_type": req.travel_mode,
+        "optimization": req.optimization,
+        "distance_m": round(d),
+        "duration_min": round(t / 60, 1),
+        "path": path,
+        "geometry": geometry,
+        "algorithm": "Dijkstra",
+        "graph_based": True,
+    }
+
+
 @app.get("/find_parking", tags=["Routing"])
 def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
     """
@@ -665,24 +722,26 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
         except Exception:
             preferred_lots = []
 
-    def _try_route(origin, dest, mode):
-        def edge_filter(u, v, data):
+    def _make_filtered(mode):
+        def _ef(u, v, data):
             if data.get("status") != "open":
                 return False
-            if mode == "drive":
-                return bool(data.get("is_driveable"))
-            return bool(data.get("is_walkable"))
+            return bool(data.get("is_driveable")) if mode == "drive" else bool(data.get("is_walkable"))
+        return nx.subgraph_view(graph, filter_edge=lambda u, v, k=None: _ef(u, v, graph.edges[u, v]))
 
-        filtered = nx.subgraph_view(
-            graph,
-            filter_edge=lambda u, v, k=None: edge_filter(u, v, graph.edges[u, v])
-        )
+    def _try_route(origin, dest, mode, weight="weight_time_seconds"):
+        filtered = _make_filtered(mode)
         try:
-            path = nx.dijkstra_path(filtered, origin, dest, weight="weight_time_seconds")
+            path = nx.dijkstra_path(filtered, origin, dest, weight=weight)
             t = nx.dijkstra_path_length(filtered, origin, dest, weight="weight_time_seconds")
             d = nx.dijkstra_path_length(filtered, origin, dest, weight="weight_distance_meters")
             geo = _route_geometry(graph, path)
-            return {"path": path, "time_seconds": round(t), "distance_meters": round(d), "geometry": geo}
+            return {
+                "path": path, "time_seconds": round(t), "distance_meters": round(d),
+                "geometry": geo,
+                "optimization": "fastest_time" if weight == "weight_time_seconds" else "shortest_distance",
+                "algorithm": "Dijkstra",
+            }
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
 
@@ -697,15 +756,26 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
         fill_rate = pred.get("fill_rate", 0.4) if pred else 0.4
         available = int(capacity * (1 - fill_rate))
 
-        # Compute drive route: gate → lot
-        drive_route = _try_route(gate_id, lot_id, "drive")
+        # Compute drive route: gate → lot (fastest by time)
+        drive_route = _try_route(gate_id, lot_id, "drive", weight="weight_time_seconds")
         if not drive_route:
             continue  # skip unreachable lots
 
-        # Compute walk route: lot → destination
-        walk_route = _try_route(lot_id, destination_id, "walk")
+        # Distance-optimal drive route (may differ from time-optimal)
+        drive_route_dist = _try_route(gate_id, lot_id, "drive", weight="weight_distance_meters")
+        # Only keep the distance route if it's genuinely shorter in metres
+        if drive_route_dist and drive_route_dist["path"] == drive_route["path"]:
+            drive_route_dist = None  # identical path — no need to show duplicate
+
+        # Compute walk route: lot → destination (fastest by time)
+        walk_route = _try_route(lot_id, destination_id, "walk", weight="weight_time_seconds")
         if not walk_route:
             continue  # skip if no walking path to destination
+
+        # Distance-optimal walk route
+        walk_route_dist = _try_route(lot_id, destination_id, "walk", weight="weight_distance_meters")
+        if walk_route_dist and walk_route_dist["path"] == walk_route["path"]:
+            walk_route_dist = None
 
         # Scoring: lower is better
         # 40% drive time + 40% walk time + 20% fill penalty
@@ -747,7 +817,9 @@ def find_parking(destination_id: str, gate_id: str = "vitap-gate-main"):
             } if pred_detail else None,
             "is_preferred_for_destination": is_preferred,
             "drive_route": drive_route,
+            "drive_route_shortest_distance": drive_route_dist,
             "walk_route": walk_route,
+            "walk_route_shortest_distance": walk_route_dist,
             "total_time_seconds": round(drive_t + walk_t),
             "total_time_minutes": round((drive_t + walk_t) / 60, 1),
             "drive_time_minutes": round(drive_t / 60, 1),

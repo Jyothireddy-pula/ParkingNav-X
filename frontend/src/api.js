@@ -104,6 +104,8 @@ export const api = {
     axios.get(`${BASE}/route`, { params: { origin, destination, mode } }),
   findParking:       (destination_id, gate_id = 'vitap-gate-main') =>
     axios.get(`${BASE}/find_parking`, { params: { destination_id, gate_id } }),
+  shortestPath:      (origin_id, destination_id, travel_mode = 'driving', optimization = 'fastest') =>
+    axios.post(`${BASE}/routing/shortest-path`, { origin_id, destination_id, travel_mode, optimization }),
 
   // Experiments
   getExperimentResults: (scenario, strategy, limit = 200) =>
