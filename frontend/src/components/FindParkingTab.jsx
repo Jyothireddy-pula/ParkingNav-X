@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import {
-  MapContainer, TileLayer, Marker, Popup, Polyline, Circle, Tooltip, useMap,
+  MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap,
 } from 'react-leaflet'
 import L from 'leaflet'
 import { api } from '../api'
 import { FALLBACK_CENTER, FALLBACK_ZOOM, isCoord, positionNote } from '../mapConfig'
 import 'leaflet/dist/leaflet.css'
+
+const GMAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -14,8 +16,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-// Keeps the selected route in view. MapContainer's `center` prop only applies on
-// first mount, so without this the map would not follow a changed selection.
 function FitRoute({ points }) {
   const map = useMap()
   const key = JSON.stringify(points)
@@ -33,15 +33,17 @@ function fillColor(rate) {
   return '#22c55e'
 }
 
-// Fixed 24x24 box so the pin tip (bottom centre) sits exactly on the coordinate,
-// regardless of how wide the emoji glyph renders.
-function starIcon() {
+function destIcon() {
   return L.divIcon({
     html: `<div style="width:24px;height:24px;font-size:22px;line-height:24px;text-align:center;">📍</div>`,
-    className: '',
-    iconSize: [24, 24],
-    iconAnchor: [12, 24],
-    popupAnchor: [0, -24],
+    className: '', iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -24],
+  })
+}
+
+function gateIcon() {
+  return L.divIcon({
+    html: `<div style="width:24px;height:24px;font-size:20px;line-height:24px;text-align:center;">🚧</div>`,
+    className: '', iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -24],
   })
 }
 
@@ -50,9 +52,27 @@ function parkingIcon(rank) {
   const c = colors[Math.min(rank, colors.length - 1)]
   return L.divIcon({
     html: `<div style="background:${c};color:white;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.4);">${rank + 1}</div>`,
-    className: '',
-    iconAnchor: [13, 13],
+    className: '', iconAnchor: [13, 13],
   })
+}
+
+// Build a Google Maps directions deeplink (no API key needed)
+function gmapsDirectionsUrl(fromLat, fromLng, toLat, toLng, mode = 'driving') {
+  if (!fromLat || !toLat) return null
+  const origin = `${fromLat},${fromLng}`
+  const dest = `${toLat},${toLng}`
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=${mode}`
+}
+
+// Google Maps Embed API URL (requires API key)
+function gmapsEmbedUrl(fromLat, fromLng, toLat, toLng, mode = 'driving') {
+  if (!GMAPS_KEY || !fromLat || !toLat) return null
+  return `https://www.google.com/maps/embed/v1/directions?key=${GMAPS_KEY}&origin=${fromLat},${fromLng}&destination=${toLat},${toLng}&mode=${mode}`
+}
+
+function fmt_m(m) {
+  if (m == null) return '—'
+  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m} m`
 }
 
 export default function FindParkingTab({ initialDest }) {
@@ -63,42 +83,28 @@ export default function FindParkingTab({ initialDest }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [selectedOption, setSelectedOption] = useState(0)
+  const [mapsView, setMapsView] = useState('leaflet') // 'leaflet' | 'google'
+  const [showDistRoute, setShowDistRoute] = useState(false)
 
   useEffect(() => {
-      let cancelled = false
-
-      const loadCampus = async () => {
-        setError(null)
-
-        try {
-          const res = await api.getCampus()
-
-          if (cancelled) return
-
-          setCampus(res.data)
-
-          // Only select a destination that still exists in the freshly loaded campus; a
-          // stale id (e.g. a destination removed from the config) must never be requested.
-          const available = res.data.destinations || []
-          const wanted = initialDest && available.find(d => d.id === initialDest.id)
-          setSelectedDest(wanted ? wanted.id : (available[0]?.id ?? ''))
-        } catch (e) {
-          if (cancelled) return
-
-          setError(
-            e.response?.data?.detail ||
-            e.message ||
-            'Failed to load campus data.'
-          )
-        }
+    let cancelled = false
+    const loadCampus = async () => {
+      setError(null)
+      try {
+        const res = await api.getCampus()
+        if (cancelled) return
+        setCampus(res.data)
+        const available = res.data.destinations || []
+        const wanted = initialDest && available.find(d => d.id === initialDest.id)
+        setSelectedDest(wanted ? wanted.id : (available[0]?.id ?? ''))
+      } catch (e) {
+        if (cancelled) return
+        setError(e.response?.data?.detail || e.message || 'Failed to load campus data.')
       }
-
-      loadCampus()
-
-      return () => {
-        cancelled = true
-      }
-    }, [initialDest])
+    }
+    loadCampus()
+    return () => { cancelled = true }
+  }, [initialDest])
 
   const findParking = async () => {
     if (!selectedDest) return
@@ -113,6 +119,7 @@ export default function FindParkingTab({ initialDest }) {
       const res = await api.findParking(selectedDest, selectedGate)
       setResult(res.data)
       setSelectedOption(0)
+      setShowDistRoute(false)
     } catch (e) {
       setError(
         e.response?.status === 404
@@ -126,15 +133,41 @@ export default function FindParkingTab({ initialDest }) {
 
   const option = result?.options?.[selectedOption]
   const destNode = campus?.destinations?.find(d => d.id === selectedDest)
+  const gateNode = campus?.gates?.find(g => g.id === selectedGate)
+  const lotNode = option ? campus?.parking_lots?.find(l => l.id === option.lot_id) : null
 
-  // Build map center from destination or default
-  const mapCenter = isCoord(destNode)
-    ? [destNode.lat, destNode.lng]
-    : FALLBACK_CENTER
+  const mapCenter = isCoord(destNode) ? [destNode.lat, destNode.lng] : FALLBACK_CENTER
 
-  // Route geometry for display
-  const driveCoords = option?.drive_route?.geometry?.map(p => [p.lat, p.lng]) || []
-  const walkCoords = option?.walk_route?.geometry?.map(p => [p.lat, p.lng]) || []
+  // Active route geometry (may switch to distance-optimal)
+  const activeDriveRoute = showDistRoute && option?.drive_route_shortest_distance
+    ? option.drive_route_shortest_distance
+    : option?.drive_route
+  const activeWalkRoute = showDistRoute && option?.walk_route_shortest_distance
+    ? option.walk_route_shortest_distance
+    : option?.walk_route
+
+  const driveCoords = activeDriveRoute?.geometry?.map(p => [p.lat, p.lng]) || []
+  const walkCoords = activeWalkRoute?.geometry?.map(p => [p.lat, p.lng]) || []
+  const allRoutePoints = [...driveCoords, ...walkCoords]
+
+  // Google Maps embed URL for selected option
+  const gmapsEmbed = isCoord(gateNode) && isCoord(lotNode)
+    ? gmapsEmbedUrl(gateNode.lat, gateNode.lng, lotNode.lat, lotNode.lng, 'driving')
+    : null
+  const gmapsWalkEmbed = isCoord(lotNode) && isCoord(destNode)
+    ? gmapsEmbedUrl(lotNode.lat, lotNode.lng, destNode.lat, destNode.lng, 'walking')
+    : null
+
+  // Navigation deeplink URLs
+  const navDriveUrl = isCoord(gateNode) && isCoord(lotNode)
+    ? gmapsDirectionsUrl(gateNode.lat, gateNode.lng, lotNode.lat, lotNode.lng, 'driving')
+    : null
+  const navWalkUrl = isCoord(lotNode) && isCoord(destNode)
+    ? gmapsDirectionsUrl(lotNode.lat, lotNode.lng, destNode.lat, destNode.lng, 'walking')
+    : null
+
+  const hasDistAlternative = !!(option?.drive_route_shortest_distance || option?.walk_route_shortest_distance)
+
   return (
     <div className="space-y-5">
       <div>
@@ -155,9 +188,7 @@ export default function FindParkingTab({ initialDest }) {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
             >
               {(campus?.destinations || []).map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.category?.replace(/_/g, ' ')})
-                </option>
+                <option key={d.id} value={d.id}>{d.name} ({d.category?.replace(/_/g, ' ')})</option>
               ))}
             </select>
           </div>
@@ -188,9 +219,7 @@ export default function FindParkingTab({ initialDest }) {
       </div>
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-          ⚠️ {error}
-        </div>
+        <div className="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm">⚠️ {error}</div>
       )}
 
       {result && (
@@ -200,44 +229,59 @@ export default function FindParkingTab({ initialDest }) {
             <div className="text-sm font-semibold text-gray-600">
               {result.options_count} options found for <strong>{result.destination_name}</strong>
             </div>
-            {result.options.map((opt, idx) => (
-              <button
-                key={opt.lot_id}
-                onClick={() => setSelectedOption(idx)}
-                className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
-                  idx === selectedOption
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-6 h-6 rounded-full text-white text-xs flex items-center justify-center font-bold ${
-                    idx === 0 ? 'bg-green-600' : idx === 1 ? 'bg-blue-600' : 'bg-gray-500'
-                  }`}>{idx + 1}</span>
-                  <span className="text-sm font-semibold text-gray-800 leading-tight">{opt.lot_name}</span>
-                  {opt.is_preferred_for_destination && (
-                    <span className="ml-auto text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">⭐ Recommended</span>
+            {result.options.map((opt, idx) => {
+              const lotCoords = campus?.parking_lots?.find(l => l.id === opt.lot_id)
+              const driveNavUrl = isCoord(gateNode) && isCoord(lotCoords)
+                ? gmapsDirectionsUrl(gateNode.lat, gateNode.lng, lotCoords.lat, lotCoords.lng, 'driving')
+                : null
+              return (
+                <div
+                  key={opt.lot_id}
+                  onClick={() => { setSelectedOption(idx); setShowDistRoute(false) }}
+                  className={`w-full text-left p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                    idx === selectedOption ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`w-6 h-6 rounded-full text-white text-xs flex items-center justify-center font-bold ${
+                      idx === 0 ? 'bg-green-600' : idx === 1 ? 'bg-blue-600' : 'bg-gray-500'
+                    }`}>{idx + 1}</span>
+                    <span className="text-sm font-semibold text-gray-800 leading-tight">{opt.lot_name}</span>
+                    {opt.is_preferred_for_destination && (
+                      <span className="ml-auto text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">⭐ Recommended</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-600 space-y-0.5 ml-8">
+                    <div>🚗 {opt.drive_time_minutes} min · {fmt_m(opt.drive_route?.distance_meters)} &nbsp;🚶 {opt.walk_time_minutes} min · {fmt_m(opt.walk_route?.distance_meters)}</div>
+                    <div>⏱️ Total {opt.total_time_minutes} min &nbsp;|&nbsp; ~{opt.estimated_available} spaces free</div>
+                    <div>
+                      Fill:&nbsp;
+                      <span className="font-semibold" style={{ color: fillColor(opt.predicted_fill_rate) }}>
+                        {opt.predicted_fill_pct}%
+                      </span>
+                    </div>
+                  </div>
+                  {/* Navigate button per card */}
+                  {driveNavUrl && (
+                    <a
+                      href={driveNavUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="mt-2 ml-8 inline-flex items-center gap-1 text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700"
+                    >
+                      🗺️ Navigate with Google Maps
+                    </a>
                   )}
                 </div>
-                <div className="text-xs text-gray-600 space-y-0.5 ml-8">
-                  <div>🚗 {opt.drive_time_minutes} min drive · 🚶 {opt.walk_time_minutes} min walk</div>
-                  <div>
-                    Fill:
-                    <span className="font-semibold ml-1" style={{ color: fillColor(opt.predicted_fill_rate) }}>
-                      {opt.predicted_fill_pct}%
-                    </span>
-                    · ~{opt.estimated_available} spaces free
-                  </div>
-                  <div className="text-gray-500 italic text-xs leading-tight">{opt.recommendation_reason}</div>
-                </div>
-              </button>
-            ))}
+              )
+            })}
             <div className="text-xs text-gray-400 italic">
-              Based on the XGBoost fill forecast; the map tab states whether it was trained on real or synthetic data.
+              Routes: Dijkstra shortest-path on campus road graph. Fill rates from XGBoost forecast.
             </div>
           </div>
 
-          {/* Map + detail */}
+          {/* Map + detail panel */}
           <div className="lg:col-span-2 space-y-3">
             {destNode && !isCoord(destNode) && (
               <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
@@ -245,72 +289,164 @@ export default function FindParkingTab({ initialDest }) {
                 Lot ranking and walk times still use the routing graph.
               </div>
             )}
+
+            {/* Map provider toggle */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">Map view:</span>
+              {['leaflet', 'google'].map(v => (
+                <button
+                  key={v}
+                  onClick={() => setMapsView(v)}
+                  className={`px-3 py-1 text-xs rounded-full font-medium border transition-colors ${
+                    mapsView === v
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {v === 'leaflet' ? '🗺️ Campus Map' : '🌐 Google Maps'}
+                </button>
+              ))}
+              {mapsView === 'google' && !GMAPS_KEY && (
+                <span className="text-xs text-amber-600 ml-1">— add <code>VITE_GOOGLE_MAPS_API_KEY</code> to .env for embed</span>
+              )}
+            </div>
+
             {/* Map */}
             <div className="rounded-lg overflow-hidden border border-gray-200 shadow" style={{ height: 340 }}>
-              <MapContainer center={mapCenter} zoom={FALLBACK_ZOOM} style={{ height: '100%', width: '100%' }}>
-                <TileLayer
-                  attribution='&copy; OpenStreetMap'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
-                <FitRoute points={[...driveCoords, ...walkCoords]} />
+              {mapsView === 'leaflet' ? (
+                <MapContainer center={mapCenter} zoom={FALLBACK_ZOOM} style={{ height: '100%', width: '100%' }}>
+                  <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <FitRoute points={allRoutePoints} />
 
-                {/* All parking lot markers */}
-                {result.options.map((opt, idx) => {
-                  const lot = campus?.parking_lots?.find(l => l.id === opt.lot_id)
-                  if (!lot) return null
-                  return (
-                    <Marker
-                      key={opt.lot_id}
-                      position={[lot.lat, lot.lng]}
-                      icon={parkingIcon(idx)}
-                    >
+                  {/* Gate marker */}
+                  {isCoord(gateNode) && (
+                    <Marker position={[gateNode.lat, gateNode.lng]} icon={gateIcon()}>
                       <Tooltip permanent direction="top" offset={[0, -14]}>
-                        <span className="text-xs font-medium">{lot.name.replace(' Lot','').replace(' Parking','')}</span>
+                        <span className="text-xs font-medium">🚧 {gateNode.name}</span>
                       </Tooltip>
+                      <Popup><strong>🚧 {gateNode.name}</strong><br />Entry gate</Popup>
+                    </Marker>
+                  )}
+
+                  {/* All parking lot markers */}
+                  {result.options.map((opt, idx) => {
+                    const lot = campus?.parking_lots?.find(l => l.id === opt.lot_id)
+                    if (!lot) return null
+                    return (
+                      <Marker key={opt.lot_id} position={[lot.lat, lot.lng]} icon={parkingIcon(idx)}>
+                        <Tooltip permanent direction="top" offset={[0, -14]}>
+                          <span className="text-xs font-medium">{lot.name.replace(' Lot', '').replace(' Parking', '')}</span>
+                        </Tooltip>
+                        <Popup>
+                          <div className="text-sm">
+                            <strong>{lot.name}</strong><br />
+                            Fill: {opt.predicted_fill_pct}%<br />
+                            ~{opt.estimated_available} spaces free<br />
+                            Total: {opt.total_time_minutes} min
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )
+                  })}
+
+                  {/* Destination marker */}
+                  {isCoord(destNode) && (
+                    <Marker position={[destNode.lat, destNode.lng]} icon={destIcon()}>
                       <Popup>
-                        <div className="text-sm">
-                          <strong>{lot.name}</strong><br />
-                          Fill: {opt.predicted_fill_pct}%<br />
-                          ~{opt.estimated_available} spaces free<br />
-                          Total time: {opt.total_time_minutes} min
-                        </div>
+                        <strong>📍 {destNode.name}</strong><br />
+                        {destNode.category?.replace(/_/g, ' ')}<br />
+                        <span className="text-xs text-gray-500">{positionNote(destNode)}</span>
                       </Popup>
                     </Marker>
-                  )
-                })}
+                  )}
 
-                {/* Destination marker */}
-                {isCoord(destNode) && (
-                  <Marker position={[destNode.lat, destNode.lng]} icon={starIcon()}>
-                    <Popup>
-                      <strong>📍 {destNode.name}</strong><br />
-                      {destNode.category?.replace(/_/g, ' ')}<br />
-                      <span className="text-xs text-gray-500">{positionNote(destNode)}</span>
-                    </Popup>
-                  </Marker>
-                )}
+                  {/* Drive route — solid blue */}
+                  {driveCoords.length >= 2 && (
+                    <Polyline positions={driveCoords} pathOptions={{ color: '#2563eb', weight: 5, opacity: 0.85 }}>
+                      <Tooltip sticky>
+                        <span className="text-xs">🚗 Drive ({activeDriveRoute?.optimization === 'shortest_distance' ? 'Shortest dist' : 'Fastest'}) · {activeDriveRoute?.distance_meters}m · {option?.drive_time_minutes} min</span>
+                      </Tooltip>
+                    </Polyline>
+                  )}
 
-                {/* Drive route — blue */}
-                {driveCoords.length >= 2 && (
-                  <Polyline
-                    positions={driveCoords}
-                    pathOptions={{ color: '#2563eb', weight: 5, opacity: 0.85 }}
-                  >
-                    <Tooltip sticky><span className="text-xs">🚗 Drive route ({option.drive_time_minutes} min)</span></Tooltip>
-                  </Polyline>
-                )}
+                  {/* Walk route — dashed green */}
+                  {walkCoords.length >= 2 && (
+                    <Polyline positions={walkCoords} pathOptions={{ color: '#16a34a', weight: 4, opacity: 0.85, dashArray: '8 5' }}>
+                      <Tooltip sticky>
+                        <span className="text-xs">🚶 Walk ({activeWalkRoute?.optimization === 'shortest_distance' ? 'Shortest dist' : 'Fastest'}) · {activeWalkRoute?.distance_meters}m · {option?.walk_time_minutes} min</span>
+                      </Tooltip>
+                    </Polyline>
+                  )}
 
-                {/* Walk route — green dashed */}
-                {walkCoords.length >= 2 && (
-                  <Polyline
-                    positions={walkCoords}
-                    pathOptions={{ color: '#16a34a', weight: 4, opacity: 0.85, dashArray: '8 5' }}
-                  >
-                    <Tooltip sticky><span className="text-xs">🚶 Walk route ({option.walk_time_minutes} min)</span></Tooltip>
-                  </Polyline>
-                )}
-              </MapContainer>
+                  {/* Map legend */}
+                  <div className="leaflet-bottom leaflet-right">
+                    <div className="leaflet-control bg-white border border-gray-200 rounded shadow text-xs p-2 m-2 space-y-1">
+                      <div className="flex items-center gap-1.5"><span className="w-5 h-1 bg-blue-600 inline-block"></span>Drive route</div>
+                      <div className="flex items-center gap-1.5"><span className="w-5 h-0 border-t-2 border-dashed border-green-600 inline-block"></span>Walk route</div>
+                      <div className="flex items-center gap-1.5">🚧 Gate &nbsp; 📍 Destination</div>
+                    </div>
+                  </div>
+                </MapContainer>
+              ) : (
+                // Google Maps embed
+                gmapsEmbed ? (
+                  <iframe
+                    title="Google Maps — Drive to Parking"
+                    src={gmapsEmbed}
+                    style={{ height: '100%', width: '100%', border: 0 }}
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full bg-gray-50 text-gray-500 text-sm space-y-3">
+                    {!GMAPS_KEY ? (
+                      <>
+                        <div className="text-2xl">🌐</div>
+                        <div className="font-medium text-gray-700">Google Maps embed not configured</div>
+                        <div className="text-xs text-gray-400 max-w-xs text-center">
+                          Add <code className="bg-gray-100 px-1 rounded">VITE_GOOGLE_MAPS_API_KEY=your_key</code> to <code>frontend/.env</code> to enable the embedded map.
+                        </div>
+                        <div className="text-xs text-gray-400">The navigation buttons below open Google Maps directly — no key needed.</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>Select a parking option to view the Google Maps embed.</div>
+                      </>
+                    )}
+                  </div>
+                )
+              )}
             </div>
+
+            {/* Navigate buttons */}
+            {option && (navDriveUrl || navWalkUrl) && (
+              <div className="flex gap-2 flex-wrap">
+                {navDriveUrl && (
+                  <a
+                    href={navDriveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    🗺️ Drive to {option.lot_name}
+                  </a>
+                )}
+                {navWalkUrl && (
+                  <a
+                    href={navWalkUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    🚶 Walk to {result.destination_name}
+                  </a>
+                )}
+                {mapsView === 'google' && gmapsWalkEmbed && (
+                  <span className="text-xs text-gray-400 self-center">Switch the Google Maps embed to walking →</span>
+                )}
+              </div>
+            )}
 
             {/* Route detail card */}
             {option && (
@@ -325,12 +461,15 @@ export default function FindParkingTab({ initialDest }) {
                   </div>
                 </div>
 
+                {/* Stats row */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   {[
                     ['🚗 Drive', `${option.drive_time_minutes} min`, 'text-blue-700'],
                     ['🚶 Walk', `${option.walk_time_minutes} min`, 'text-green-700'],
                     ['⏱️ Total', `${option.total_time_minutes} min`, 'text-gray-700'],
-                    ['🅿️ Forecast', `${option.predicted_fill_pct}%`, option.predicted_fill_rate >= 0.9 ? 'text-red-600' : option.predicted_fill_rate >= 0.7 ? 'text-orange-500' : 'text-green-600'],
+                    ['🅿️ Forecast', `${option.predicted_fill_pct}%`,
+                      option.predicted_fill_rate >= 0.9 ? 'text-red-600'
+                      : option.predicted_fill_rate >= 0.7 ? 'text-orange-500' : 'text-green-600'],
                   ].map(([label, value, cls]) => (
                     <div key={label} className="text-center p-2 bg-gray-50 rounded border">
                       <div className={`text-lg font-bold ${cls}`}>{value}</div>
@@ -339,14 +478,15 @@ export default function FindParkingTab({ initialDest }) {
                   ))}
                 </div>
 
-                <div className="space-y-2">
+                {/* Route steps */}
+                <div className="space-y-2 mb-4">
                   <div className="flex items-start gap-2 text-sm">
                     <span className="mt-0.5 w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0">1</span>
                     <div>
                       <div className="font-medium text-gray-700">Drive to {option.lot_name}</div>
                       <div className="text-xs text-gray-500">
                         Enter via {campus?.gates?.find(g => g.id === result.gate_used)?.name || result.gate_used}
-                        · {option.drive_route?.distance_meters}m · {option.drive_time_minutes} min
+                        · {fmt_m(option.drive_route?.distance_meters)} · {option.drive_time_minutes} min
                       </div>
                     </div>
                   </div>
@@ -355,13 +495,77 @@ export default function FindParkingTab({ initialDest }) {
                     <div>
                       <div className="font-medium text-gray-700">Walk to {result.destination_name}</div>
                       <div className="text-xs text-gray-500">
-                        {option.walk_route?.distance_meters}m walking path · {option.walk_time_minutes} min
+                        {fmt_m(option.walk_route?.distance_meters)} walking · {option.walk_time_minutes} min
                       </div>
                     </div>
                   </div>
                   <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
                     💡 {option.recommendation_reason}
                   </div>
+                </div>
+
+                {/* Route comparison table */}
+                <div className="border border-gray-100 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-100">
+                    <span className="text-xs font-semibold text-gray-600">Route Alternatives (Campus Graph · Dijkstra)</span>
+                    {hasDistAlternative && (
+                      <button
+                        onClick={() => setShowDistRoute(v => !v)}
+                        className={`text-xs px-2 py-0.5 rounded font-medium ${showDistRoute ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        {showDistRoute ? '📏 Shortest dist on map' : 'Show shortest dist on map'}
+                      </button>
+                    )}
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 bg-gray-50">
+                        <th className="text-left px-3 py-1.5">Leg</th>
+                        <th className="text-left px-3 py-1.5">Optimization</th>
+                        <th className="text-right px-3 py-1.5">Distance</th>
+                        <th className="text-right px-3 py-1.5">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Drive fastest */}
+                      <tr className={`border-t border-gray-100 ${!showDistRoute ? 'bg-blue-50' : ''}`}>
+                        <td className="px-3 py-1.5 text-blue-700 font-medium">🚗 Drive</td>
+                        <td className="px-3 py-1.5 text-gray-600">⚡ Fastest</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{fmt_m(option.drive_route?.distance_meters)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{option.drive_time_minutes} min</td>
+                      </tr>
+                      {/* Drive shortest distance (if different) */}
+                      {option.drive_route_shortest_distance && (
+                        <tr className={`border-t border-gray-100 ${showDistRoute ? 'bg-purple-50' : ''}`}>
+                          <td className="px-3 py-1.5 text-blue-700 font-medium">🚗 Drive</td>
+                          <td className="px-3 py-1.5 text-gray-600">📏 Shortest dist</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-purple-700 font-semibold">{fmt_m(option.drive_route_shortest_distance?.distance_meters)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{(option.drive_route_shortest_distance?.time_seconds / 60).toFixed(1)} min</td>
+                        </tr>
+                      )}
+                      {/* Walk fastest */}
+                      <tr className={`border-t border-gray-100 ${!showDistRoute ? 'bg-green-50' : ''}`}>
+                        <td className="px-3 py-1.5 text-green-700 font-medium">🚶 Walk</td>
+                        <td className="px-3 py-1.5 text-gray-600">⚡ Fastest</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{fmt_m(option.walk_route?.distance_meters)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{option.walk_time_minutes} min</td>
+                      </tr>
+                      {/* Walk shortest distance (if different) */}
+                      {option.walk_route_shortest_distance && (
+                        <tr className={`border-t border-gray-100 ${showDistRoute ? 'bg-purple-50' : ''}`}>
+                          <td className="px-3 py-1.5 text-green-700 font-medium">🚶 Walk</td>
+                          <td className="px-3 py-1.5 text-gray-600">📏 Shortest dist</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-purple-700 font-semibold">{fmt_m(option.walk_route_shortest_distance?.distance_meters)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{(option.walk_route_shortest_distance?.time_seconds / 60).toFixed(1)} min</td>
+                        </tr>
+                      )}
+                      {!option.drive_route_shortest_distance && !option.walk_route_shortest_distance && (
+                        <tr className="border-t border-gray-100">
+                          <td colSpan={4} className="px-3 py-2 text-center text-gray-400 italic">Fastest and shortest-distance routes are identical for this lot.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -374,7 +578,9 @@ export default function FindParkingTab({ initialDest }) {
         <div className="text-center py-12 text-gray-400">
           <div className="text-5xl mb-4">🅿️</div>
           <div className="text-lg font-medium">Select your destination and click Find Best Parking</div>
-          <div className="text-sm mt-1">ParkingNav-X will compute drive + walk routes and rank parking options by predicted fill rate</div>
+          <div className="text-sm mt-1">
+            ParkingNav-X computes optimal drive + walk routes using Dijkstra's algorithm on the campus road graph.
+          </div>
         </div>
       )}
     </div>
