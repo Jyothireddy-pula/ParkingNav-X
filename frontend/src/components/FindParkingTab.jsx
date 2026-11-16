@@ -7,7 +7,6 @@ import { api } from '../api'
 import { FALLBACK_CENTER, FALLBACK_ZOOM, isCoord, positionNote } from '../mapConfig'
 import 'leaflet/dist/leaflet.css'
 
-const GMAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -64,11 +63,6 @@ function gmapsDirectionsUrl(fromLat, fromLng, toLat, toLng, mode = 'driving') {
   return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(dest)}&travelmode=${mode}`
 }
 
-// Google Maps Embed API URL (requires API key)
-function gmapsEmbedUrl(fromLat, fromLng, toLat, toLng, mode = 'driving') {
-  if (!GMAPS_KEY || !fromLat || !toLat) return null
-  return `https://www.google.com/maps/embed/v1/directions?key=${GMAPS_KEY}&origin=${fromLat},${fromLng}&destination=${toLat},${toLng}&mode=${mode}`
-}
 
 function fmt_m(m) {
   if (m == null) return '—'
@@ -83,7 +77,6 @@ export default function FindParkingTab({ initialDest }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [selectedOption, setSelectedOption] = useState(0)
-  const [mapsView, setMapsView] = useState('leaflet') // 'leaflet' | 'google'
   const [showDistRoute, setShowDistRoute] = useState(false)
 
   useEffect(() => {
@@ -150,13 +143,6 @@ export default function FindParkingTab({ initialDest }) {
   const walkCoords = activeWalkRoute?.geometry?.map(p => [p.lat, p.lng]) || []
   const allRoutePoints = [...driveCoords, ...walkCoords]
 
-  // Google Maps embed URL for selected option
-  const gmapsEmbed = isCoord(gateNode) && isCoord(lotNode)
-    ? gmapsEmbedUrl(gateNode.lat, gateNode.lng, lotNode.lat, lotNode.lng, 'driving')
-    : null
-  const gmapsWalkEmbed = isCoord(lotNode) && isCoord(destNode)
-    ? gmapsEmbedUrl(lotNode.lat, lotNode.lng, destNode.lat, destNode.lng, 'walking')
-    : null
 
   // Navigation deeplink URLs
   const navDriveUrl = isCoord(gateNode) && isCoord(lotNode)
@@ -290,31 +276,9 @@ export default function FindParkingTab({ initialDest }) {
               </div>
             )}
 
-            {/* Map provider toggle */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">Map view:</span>
-              {['leaflet', 'google'].map(v => (
-                <button
-                  key={v}
-                  onClick={() => setMapsView(v)}
-                  className={`px-3 py-1 text-xs rounded-full font-medium border transition-colors ${
-                    mapsView === v
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  {v === 'leaflet' ? '🗺️ Campus Map' : '🌐 Google Maps'}
-                </button>
-              ))}
-              {mapsView === 'google' && !GMAPS_KEY && (
-                <span className="text-xs text-amber-600 ml-1">— add <code>VITE_GOOGLE_MAPS_API_KEY</code> to .env for embed</span>
-              )}
-            </div>
-
             {/* Map */}
             <div className="rounded-lg overflow-hidden border border-gray-200 shadow" style={{ height: 340 }}>
-              {mapsView === 'leaflet' ? (
-                <MapContainer center={mapCenter} zoom={FALLBACK_ZOOM} style={{ height: '100%', width: '100%' }}>
+              <MapContainer center={mapCenter} zoom={FALLBACK_ZOOM} style={{ height: '100%', width: '100%' }}>
                   <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   <FitRoute points={allRoutePoints} />
 
@@ -387,36 +351,6 @@ export default function FindParkingTab({ initialDest }) {
                     </div>
                   </div>
                 </MapContainer>
-              ) : (
-                // Google Maps embed
-                gmapsEmbed ? (
-                  <iframe
-                    title="Google Maps — Drive to Parking"
-                    src={gmapsEmbed}
-                    style={{ height: '100%', width: '100%', border: 0 }}
-                    allowFullScreen
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full bg-gray-50 text-gray-500 text-sm space-y-3">
-                    {!GMAPS_KEY ? (
-                      <>
-                        <div className="text-2xl">🌐</div>
-                        <div className="font-medium text-gray-700">Google Maps embed not configured</div>
-                        <div className="text-xs text-gray-400 max-w-xs text-center">
-                          Add <code className="bg-gray-100 px-1 rounded">VITE_GOOGLE_MAPS_API_KEY=your_key</code> to <code>frontend/.env</code> to enable the embedded map.
-                        </div>
-                        <div className="text-xs text-gray-400">The navigation buttons below open Google Maps directly — no key needed.</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>Select a parking option to view the Google Maps embed.</div>
-                      </>
-                    )}
-                  </div>
-                )
-              )}
             </div>
 
             {/* Navigate buttons */}
@@ -441,9 +375,6 @@ export default function FindParkingTab({ initialDest }) {
                   >
                     🚶 Walk to {result.destination_name}
                   </a>
-                )}
-                {mapsView === 'google' && gmapsWalkEmbed && (
-                  <span className="text-xs text-gray-400 self-center">Switch the Google Maps embed to walking →</span>
                 )}
               </div>
             )}
