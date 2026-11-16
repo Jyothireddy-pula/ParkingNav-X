@@ -9,13 +9,13 @@ import FindParkingTab from './components/FindParkingTab'
 import RecordCountsTab from './components/RecordCountsTab'
 
 const TABS = [
-  { id: 'map',        label: '🗺️ Digital Twin Map' },
-  { id: 'find',       label: '🅿️ Find Parking' },
-  { id: 'forecast',   label: '📈 Forecast & Risk' },
-  { id: 'scenario',   label: '⚙️ Scenarios' },
-  { id: 'recommend',  label: '💡 Recommendations' },
-  { id: 'experiments',label: '🔬 Experiments' },
-  { id: 'record',     label: '📝 Record Counts' },
+  { id: 'map',        label: 'Digital Twin Map' },
+  { id: 'find',       label: 'Find Parking' },
+  { id: 'forecast',   label: 'Forecast & Risk' },
+  { id: 'scenario',   label: 'Scenarios' },
+  { id: 'recommend',  label: 'Recommendations' },
+  { id: 'experiments',label: 'Experiments' },
+  { id: 'record',     label: 'Record Counts' },
 ]
 
 export default function App() {
