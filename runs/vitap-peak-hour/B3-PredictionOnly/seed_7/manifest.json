@@ -1,0 +1,10 @@
+{
+  "scenario_id": "vitap-peak-hour",
+  "strategy_name": "B3-PredictionOnly",
+  "random_seed": 7,
+  "config_hash": "e0adfaa2",
+  "git_commit": "b68a1b733450e86843a11ab1f74ce4da9c7351a6",
+  "recorded_at": "2026-11-13T04:46:50.482286+00:00",
+  "vehicle_count": 480,
+  "timestep_count": 600
+}
