@@ -1,1 +1,30 @@
-{   "primary_metrics": {     "avg_search_time_min": 1.22,     "avg_waiting_time_min": 0.01,     "avg_gate_queue_vehicles": 0.0,     "max_gate_queue_vehicles": 2,     "overflow_events_count": 0,     "avg_travel_time_min": 1.67,     "total_travel_time_veh_min": 669.8,     "avg_travel_distance_m": 937.0,     "total_travel_distance_veh_km": 374.8,     "lot_peak_occupied_spaces": {       "vitap-lot-academic-main": 32,       "vitap-lot-overflow": 0,       "vitap-lot-sports": 11,       "vitap-lot-hostel": 90,       "vitap-lot-admin-visitor": 12     }   },   "secondary_metrics": {     "total_vehicles_simulated": 400,     "parked_vehicles": 46,     "exited_vehicles": 352,     "in_system_vehicles": 2,     "rejected_vehicles": 0,     "allocated_vehicles": 400,     "allocation_success_rate": 1.0,     "avg_search_time_event_window_min": null   } }
+{
+  "primary_metrics": {
+    "avg_search_time_min": 2.06,
+    "avg_waiting_time_min": 0.0,
+    "avg_gate_queue_vehicles": 0.0,
+    "max_gate_queue_vehicles": 1,
+    "overflow_events_count": 0,
+    "avg_travel_time_min": 0.76,
+    "total_travel_time_veh_min": 304.1,
+    "avg_travel_distance_m": 431.1,
+    "total_travel_distance_veh_km": 172.4,
+    "lot_peak_occupied_spaces": {
+      "vitap-lot-academic-main": 69,
+      "vitap-lot-hostel": 29,
+      "vitap-lot-admin-visitor": 41,
+      "vitap-lot-sports": 0,
+      "vitap-lot-overflow": 42
+    }
+  },
+  "secondary_metrics": {
+    "total_vehicles_simulated": 400,
+    "parked_vehicles": 45,
+    "exited_vehicles": 355,
+    "in_system_vehicles": 0,
+    "rejected_vehicles": 0,
+    "allocated_vehicles": 400,
+    "allocation_success_rate": 1.0,
+    "avg_search_time_event_window_min": null
+  }
+}
