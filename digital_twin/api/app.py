@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import List, Optional
 
 import networkx as nx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Path as PathParameter, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
 from digital_twin.config_loader import load_campus_config
@@ -78,6 +79,113 @@ app = FastAPI(
         {"name": "Experiments",  "description": "Stored multi-seed experiment results (E1–E6)"},
     ],
 )
+
+
+def _swagger_choice_values():
+    """Return live values used to populate Swagger's enum dropdowns."""
+    choices = {
+        "scenario": sorted(path.stem for path in SCENARIO_DIR.glob("*.yaml")),
+        "strategy": ["B1", "B2", "B3", "P"],
+        "strategies": ["B1", "B2", "B3", "P"],
+        "weight_profile": ["P1", "P2", "P3"],
+        "mode": ["drive", "walk"],
+        "travel_mode": ["driving", "walking"],
+        "optimization": ["fastest", "shortest_distance"],
+        "action": ["close", "open", "cap_override"],
+        "source": ["sensor", "manual", "synthetic"],
+        "horizon_minutes": [5, 15, 30, 60],
+        "horizon": [5, 15, 30, 60],
+    }
+    try:
+        conn = get_conn()
+        choices["lot_id"] = [row[0] for row in conn.execute(
+            "SELECT parking_lot_id FROM parking_lots WHERE campus_id='vitap' ORDER BY parking_lot_id"
+        ).fetchall()]
+        choices["gate_id"] = [row[0] for row in conn.execute(
+            "SELECT gate_id FROM gates WHERE campus_id='vitap' ORDER BY gate_id"
+        ).fetchall()]
+        choices["destination_id"] = [row[0] for row in conn.execute(
+            "SELECT destination_id FROM destinations WHERE campus_id='vitap' ORDER BY destination_id"
+        ).fetchall()]
+        nodes = conn.execute(
+            "SELECT gate_id FROM gates WHERE campus_id='vitap' UNION "
+            "SELECT parking_lot_id FROM parking_lots WHERE campus_id='vitap' UNION "
+            "SELECT destination_id FROM destinations WHERE campus_id='vitap' ORDER BY 1"
+        ).fetchall()
+        choices["origin"] = [row[0] for row in nodes]
+        choices["destination"] = [row[0] for row in nodes]
+        choices["origin_id"] = [row[0] for row in nodes]
+    except Exception:
+        # Keep the docs usable during initial DB setup; choices will be refreshed
+        # on the next process start after the campus data is available.
+        choices.setdefault("lot_id", ["vitap-lot-hostel", "vitap-lot-academic-main"])
+        choices.setdefault("gate_id", ["vitap-gate-main", "vitap-gate-visitor"])
+        choices.setdefault("destination_id", ["vitap-osm-mh5-001", "vitap-lib-001", "vitap-gym-001"])
+        nodes = ["vitap-gate-main", "vitap-gate-visitor", "vitap-lot-hostel", "vitap-lot-academic-main"]
+        choices.setdefault("origin", nodes)
+        choices.setdefault("destination", nodes)
+        choices.setdefault("origin_id", nodes)
+    return {key: value for key, value in choices.items() if value}
+
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    choices = _swagger_choice_values()
+
+    def annotate(field_name, field_schema):
+        values = choices.get(field_name)
+        if values:
+            target_schema = field_schema
+            if field_schema.get("type") == "array":
+                target_schema = field_schema.setdefault("items", {})
+            target_schema["enum"] = values
+            field_schema.setdefault("example", values[0] if target_schema is field_schema else [values[0]])
+        elif field_name == "as_of":
+            field_schema.setdefault("example", "2026-11-19T09:30:00")
+            field_schema.setdefault("description", "Optional ISO-8601 timestamp; omit to use the current time")
+        elif field_name == "timestamp":
+            field_schema.setdefault("format", "date-time")
+            field_schema.setdefault("example", "2026-11-19T09:30:00")
+        elif field_name == "reason":
+            field_schema.setdefault("example", "Maintenance")
+        elif field_name == "x-api-key":
+            field_schema.setdefault("example", "your-api-key")
+            field_schema.setdefault("description", "Required only when PARKINGNAV_API_KEY is configured")
+        elif field_name == "override_capacity":
+            field_schema.setdefault("example", 80)
+            field_schema.setdefault("minimum", 1)
+        elif field_name == "occupied_spaces":
+            field_schema.setdefault("example", 45)
+            field_schema.setdefault("minimum", 0)
+        elif field_name in {"vehicle_count", "limit"}:
+            field_schema.setdefault("example", 48 if field_name == "vehicle_count" else 200)
+            field_schema.setdefault("minimum", 0 if field_name == "vehicle_count" else 1)
+
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            for parameter in operation.get("parameters", []):
+                annotate(parameter.get("name"), parameter.setdefault("schema", {}))
+
+    for model in schema.get("components", {}).get("schemas", {}).values():
+        for name, field_schema in model.get("properties", {}).items():
+            annotate(name, field_schema)
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi
 
 app.add_middleware(
     CORSMiddleware,
@@ -539,6 +647,23 @@ def list_strategies():
     tags=["Simulation"],
     summary="Run a parking simulation",
     response_description="Simulation metrics: overflow, search time, queue stats",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "ParkingNav-X on a normal day": {
+                            "summary": "Recommended starter request",
+                            "value": {"scenario": "E1_normal_day", "strategy": "P"},
+                        },
+                        "Nearest lot baseline": {
+                            "value": {"scenario": "E2_event_placement", "strategy": "B2"},
+                        },
+                    }
+                }
+            }
+        }
+    },
 )
 def simulate(req: SimulateRequest):
     """Run a single parking simulation and return metrics.
@@ -604,8 +729,13 @@ def simulate(req: SimulateRequest):
     }
 
 
-@app.get("/compare/{scenario}", tags=["Simulation"])
-def compare_strategies(scenario: str):
+@app.get(
+    "/compare/{scenario}",
+    tags=["Simulation"],
+    summary="Compare strategies now",
+    description="Runs B1, B2, B3 and ParkingNav-X immediately. For a long-running comparison, use POST /compare/{scenario}/start, then poll GET /compare/{scenario}/status.",
+)
+def compare_strategies(scenario: str = PathParameter(..., description="Scenario ID; use GET /scenarios to list available scenarios")):
     """Run all 4 strategies on a scenario and return side-by-side comparison."""
     scenario_file = SCENARIO_DIR / f"{scenario}.yaml"
     if not scenario_file.exists():
@@ -643,8 +773,15 @@ def compare_strategies(scenario: str):
 _compare_jobs: dict = {}  # scenario -> {"status": "running"|"done"|"error", "result": ..., "error": ...}
 
 
-@app.post("/compare/{scenario}/start", tags=["Simulation"])
-def compare_start(scenario: str):
+@app.post(
+    "/compare/{scenario}/start",
+    tags=["Simulation"],
+    summary="Start a background comparison",
+    description="Start here before polling GET /compare/{scenario}/status. After starting, poll the status endpoint until it returns done.",
+)
+def compare_start(
+    scenario: str = PathParameter(..., description="Scenario ID; use GET /scenarios to see available scenarios")
+):
     """Launch a background comparison job for the given scenario."""
     scenario_file = SCENARIO_DIR / f"{scenario}.yaml"
     if not scenario_file.exists():
@@ -680,20 +817,31 @@ def compare_start(scenario: str):
     return {"status": "started", "scenario": scenario}
 
 
-@app.get("/compare/{scenario}/status", tags=["Simulation"])
-def compare_status(scenario: str):
-    """Poll the status of an in-progress or completed comparison."""
+@app.get(
+    "/compare/{scenario}/status",
+    tags=["Simulation"],
+    summary="Poll comparison status",
+    description="Use POST /compare/{scenario}/start first. Returns not_started when no job exists, running while it executes, or done with comparison metrics.",
+)
+def compare_status(
+    scenario: str = PathParameter(..., description="Scenario ID used when starting the comparison")
+):
+    """Poll status; a missing job is reported as not_started rather than an error."""
+    if not (SCENARIO_DIR / f"{scenario}.yaml").exists():
+        available = [f.stem for f in SCENARIO_DIR.glob("*.yaml")]
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario}' not found. Available: {available}")
     job = _compare_jobs.get(scenario)
     if job is None:
-        raise HTTPException(status_code=404, detail="No comparison job found for this scenario. POST /compare/{scenario}/start first.")
+        return {
+            "status": "not_started",
+            "scenario": scenario,
+            "message": f"Start this comparison with POST /compare/{scenario}/start, then poll this endpoint again.",
+        }
     if job["status"] == "done":
-        _compare_jobs.pop(scenario, None)
         return {"status": "done", **job["result"]}
     if job["status"] == "error":
-        err = job.get("error", "Unknown error")
-        _compare_jobs.pop(scenario, None)
-        return {"status": "error", "error": err}
-    return {"status": "running"}
+        return {"status": "error", "scenario": scenario, "error": job.get("error", "Unknown error")}
+    return {"status": "running", "scenario": scenario}
 
 
 @app.get("/events", tags=["Campus"])
@@ -718,52 +866,12 @@ def get_events():
     tags=["Routing"],
     summary="Get point-to-point route",
     response_description="Dijkstra path with geometry, time and distance",
-    openapi_extra={
-        "parameters": [
-            {
-                "name": "origin",
-                "in": "query",
-                "required": True,
-                "schema": {
-                    "type": "string",
-                    "example": "vitap-gate-main",
-                    "enum": [
-                        "vitap-gate-main", "vitap-gate-visitor",
-                        "vitap-lot-hostel", "vitap-lot-sports",
-                        "vitap-lot-academic-main", "vitap-lot-admin-visitor",
-                        "vitap-lot-overflow",
-                    ],
-                },
-                "description": "Start node ID (gate or parking lot)",
-            },
-            {
-                "name": "destination",
-                "in": "query",
-                "required": True,
-                "schema": {
-                    "type": "string",
-                    "example": "vitap-lot-hostel",
-                    "enum": [
-                        "vitap-lot-hostel", "vitap-lot-sports",
-                        "vitap-lot-academic-main", "vitap-lot-admin-visitor",
-                        "vitap-lot-overflow", "vitap-osm-mh5-001",
-                        "vitap-osm-mh4-001", "vitap-osm-lh2-001",
-                        "vitap-lib-001", "vitap-gym-001",
-                    ],
-                },
-                "description": "End node ID (parking lot or destination)",
-            },
-            {
-                "name": "mode",
-                "in": "query",
-                "required": False,
-                "schema": {"type": "string", "enum": ["drive", "walk"], "default": "drive"},
-                "description": "Travel mode",
-            },
-        ]
-    },
 )
-def get_route(origin: str, destination: str, mode: str = "drive"):
+def get_route(
+    origin: str = Query("vitap-gate-main", description="Start node ID (gate or parking lot)"),
+    destination: str = Query("vitap-lot-hostel", description="End node ID (parking lot or destination)"),
+    mode: str = Query("drive", enum=["drive", "walk"], description="Travel mode"),
+):
     """
     Compute the Dijkstra shortest path between two campus nodes.
 
