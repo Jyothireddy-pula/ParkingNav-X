@@ -29,7 +29,7 @@ function Invoke-Step($num, $desc, $uri, $method = "GET", $body = $null) {
 # STEP 1: Health check
 Write-Host "Step 1: Checking backend health..." -ForegroundColor Yellow
 try {
-    $health = Invoke-RestMethod -Uri "$BASE/" -Method GET
+    $health = Invoke-RestMethod -Uri "$BASE/health" -Method GET
     $health | ConvertTo-Json
 } catch {
     Write-Host ""
@@ -53,15 +53,32 @@ Invoke-Step 4 "15-minute occupancy forecast (XGBoost + conformal intervals)" `
 
 # STEP 5: Risk assessment
 Invoke-Step 5a "Current risk scores" "$BASE/risk/current"
-Invoke-Step 5b "Forecast risk (15 min)" "$BASE/risk/forecast?horizon_minutes=15"
+Invoke-Step 5b "Forecast risk (15 min)" "$BASE/risk/forecast?horizon=15"
 
 # STEP 6: Proactive recommendation
 Invoke-Step 6 "ParkingNav-X recommendation (objective score + why_chosen)" `
-    "$BASE/recommendations"
+    "$BASE/optimize" "POST" @{scenario="E2_event_placement"; weight_profile="P1"}
 
 # STEP 7: Strategy comparison
 Invoke-Step 7 "Strategy comparison: B1 vs B2 vs B3 vs P on E1" `
-    "$BASE/compare/E1_normal_day"
+    "$BASE/compare/E1_normal_day/start" "POST"
+
+# The comparison is deliberately a background job; poll until all 4 simulations finish.
+$job = $null
+for ($attempt = 0; $attempt -lt 180; $attempt++) {
+    Start-Sleep -Seconds 2
+    try {
+        $job = Invoke-RestMethod -Uri "$BASE/compare/E1_normal_day/status" -Method GET
+        if ($job.status -eq "done") {
+            $job | ConvertTo-Json -Depth 6
+            break
+        }
+        if ($job.status -eq "error") { throw $job.error }
+    } catch {
+        if ($attempt -eq 179) { throw }
+    }
+}
+if (-not $job -or $job.status -ne "done") { throw "Strategy comparison timed out." }
 
 # STEP 8: Experiment summary
 Invoke-Step 8 "Stored experiment results summary" "$BASE/experiments/summary"
