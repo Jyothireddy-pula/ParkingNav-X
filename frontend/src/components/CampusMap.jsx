@@ -358,7 +358,7 @@ export default function CampusMap({ onNavigateTo }) {
                         onClick={() => onNavigateTo(dest)}
                         className="mt-2 w-full px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
                       >
-                        🅿️ Find Parking Here
+                        Find Parking Here
                       </button>
                     )}
                   </div>
