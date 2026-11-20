@@ -67,15 +67,6 @@ export default function App() {
             <div>B.Tech CSE Capstone 2026</div>
             <div className="flex items-center justify-end gap-3">
               <div className="text-vitap-gold font-semibold">LIVE DASHBOARD</div>
-              <a
-                href={`${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/docs`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-blue-200/60 px-2.5 py-1 font-semibold text-white hover:bg-white/10"
-                title="Browse API endpoints, fill in parameters, and execute requests"
-              >
-                Try API · Swagger ↗
-              </a>
             </div>
           </div>
         </div>
