@@ -198,7 +198,7 @@ export default function FindParkingTab({ initialDest }) {
               disabled={loading || !selectedDest}
               className="w-full px-4 py-2 bg-blue-700 text-white rounded-md text-sm font-semibold hover:bg-blue-800 disabled:opacity-50 transition-colors"
             >
-              {loading ? '⏳ Finding…' : '🅿️ Find Best Parking'}
+              {loading ? '⏳ Finding…' : 'Find Best Parking'}
             </button>
           </div>
         </div>
